@@ -1,0 +1,7 @@
+{
+  "name": "env-inspection-desktop-app",
+  "version": "1.0.0",
+  "description": "GZ环保巡查管理系统桌面客户端应用资源",
+  "author": "GZ环保巡查",
+  "type": "module"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "env-inspection-desktop",
+  "version": "1.0.1",
+  "description": "GZ环保巡查管理系统 - 桌面客户端（Electron 套壳，直连云函数网关，与 APP 共享数据）",
+  "main": "main.js",
+  "author": "GZ",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --config",
+    "trim": "node build/trim-electron-locales.cjs"
+  },
+  "devDependencies": {
+    "electron": "^22.3.27",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.gz.envinspection.desktop",
+    "productName": "GZ环保巡查管理系统",
+    "copyright": "Copyright © 2026 GZ",
+    "files": [
+      "main.js",
+      "preload.js",
+      "static_server.js",
+      "app/**/*"
+    ],
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "app": ".",
+      "output": "dist_release",
+      "buildResources": "app"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "GZ环保巡查管理系统_v${version}.exe"
+    }
+  }
+}

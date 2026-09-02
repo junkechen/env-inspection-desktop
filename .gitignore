@@ -1,0 +1,8 @@
+node_modules/
+dist*/
+out*/
+dist_release/
+asar-check/
+*.log
+desktop-client.log
+.DS_Store

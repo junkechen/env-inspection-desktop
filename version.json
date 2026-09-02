@@ -1,0 +1,7 @@
+{
+  "version": "1.0.1",
+  "exeName": "GZ环保巡查管理系统_v1.0.1.exe",
+  "exeUrl": "https://github.com/junkechen/xuncha/releases/latest/download/GZ环保巡查管理系统_v1.0.1.exe",
+  "notes": "高 DPI 排版修复（表格列宽稳定、整改进度条清晰、用户管理操作列不再错位）；新增基于 Git/Release 的自动更新。",
+  "publishedAt": "2026-09-02"
+}
