@@ -34,7 +34,7 @@
       "target": [
         "portable"
       ],
-      "artifactName": "GZ环保巡查管理系统_v${version}.exe"
+      "artifactName": "GZInspection_v${version}.exe"
     }
   }
 }
