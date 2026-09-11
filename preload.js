@@ -20,10 +20,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('app:fetch-image-url', args);
   },
 
-  // 自动更新相关能力（主进程完成网络与文件操作，渲染进程只做 UI 与决策）
+  // 更新检查相关能力（主进程完成网络读取与打开浏览器；不在程序内下载/自替换）
   getAppVersion: () => ipcRenderer.invoke('app:get-app-version'),
   getUpdateConfig: () => ipcRenderer.invoke('app:get-update-config'),
   fetchText: (payload) => ipcRenderer.invoke('app:fetch-text', payload),
-  downloadFile: (payload) => ipcRenderer.invoke('app:download-file', payload),
-  applyUpdate: (payload) => ipcRenderer.invoke('app:apply-update', payload)
+  openExternal: (url) => ipcRenderer.invoke('app:open-external', url)
 });

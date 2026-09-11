@@ -14,7 +14,7 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const http = require('http');
-const { app, BrowserWindow, dialog, ipcMain, session } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
 const { startStaticServer } = require('./static_server');
 
 const APP_ROOT = path.join(__dirname, 'app');
@@ -371,48 +371,13 @@ ipcMain.handle('app:fetch-text', async (_event, { url, timeout }) => {
   catch (e) { return { error: e && e.message ? e.message : String(e) }; }
 });
 
-ipcMain.handle('app:download-file', async (_event, { url, fileName }) => {
+// 弱化更新：仅用系统默认浏览器打开下载页，不在程序内下载/自替换，避免被杀软误判。
+ipcMain.handle('app:open-external', async (_event, url) => {
   try {
-    const dest = path.join(app.getPath('temp'), fileName || 'gz_env_update.exe');
-    await httpsDownload(url, dest, 120000);
-    return { ok: true, dest };
-  } catch (e) { return { error: e && e.message ? e.message : String(e) }; }
-});
-
-// 下载完成后由渲染进程调用：tmpExe=临时下载文件，exeName=目标版本文件名（如 GZ..._v1.0.2.exe）
-ipcMain.handle('app:apply-update', async (_event, { tmpExe, exeName }) => {
-  try {
-    const dir = path.dirname(process.execPath);
-    const targetExe = path.join(dir, exeName);
-    const oldExe = process.execPath;
-    const esc = (p) => String(p).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    const ppid = process.pid;
-    const script = `
-$ErrorActionPreference='SilentlyContinue'
-$ppid = ${ppid}
-$old = "${esc(oldExe)}"
-$tmp = "${esc(tmpExe)}"
-$target = "${esc(targetExe)}"
-for ($i = 0; $i -lt 40; $i++) {
-  if (-not (Get-Process -Id $ppid -ErrorAction SilentlyContinue)) { break }
-  Start-Sleep -Milliseconds 300
-}
-Start-Sleep -Milliseconds 500
-try { if (Test-Path $old) { Remove-Item $old -Force } } catch {}
-try { Move-Item $tmp $target -Force } catch { Copy-Item $tmp $target -Force }
-Start-Process $target
-`;
-    const psPath = path.join(app.getPath('temp'), 'gz_env_updater.ps1');
-    fs.writeFileSync(psPath, script, 'utf8');
-    const { spawn } = require('child_process');
-    const child = spawn('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-File', psPath], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-    log('UPDATE', `updater scheduled: tmp=${tmpExe} target=${targetExe} old=${oldExe}`);
-    setTimeout(() => { try { app.quit(); } catch (e) {} }, 600);
+    if (!url || typeof url !== 'string') return { error: 'invalid-url' };
+    await shell.openExternal(url);
     return { ok: true };
-  } catch (e) {
-    return { error: e && e.message ? e.message : String(e) };
-  }
+  } catch (e) { return { error: e && e.message ? e.message : String(e) }; }
 });
 
 app.whenReady().then(() => {
