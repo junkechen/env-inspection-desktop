@@ -6,8 +6,9 @@ import RichTextEditor from '../richtext.js';
 import {
   STATUS, STATUS_MAP, CATEGORY_MAP, MAX_PINNED, AUDIT_ACTION_MAP,
   canManage, canPin, visibleAnnouncements, statusText, isPinned,
-  sanitizeHtml, stripTags, draftKey, parseDraft
+  matchTargetDept, sanitizeHtml, stripTags, draftKey, parseDraft
 } from '../announcement.js';
+import { currentDept } from '../dept.js';
 
 function fmtDate(v) {
   if (!v) return '—';
@@ -349,7 +350,9 @@ export default {
         }
 
         now.value = Date.now();
-        list.value = visibleAnnouncements(me, raw.value, now.value);
+        // 【D-6 修复】公告按科室定向：带 targetDept 的公告仅本科室可见；空 targetDept 仍全员可见。
+        list.value = visibleAnnouncements(me, raw.value, now.value)
+          .filter(a => matchTargetDept(a, currentDept()));
         await loadStats();
       } catch (e) {
         ElMessage.error(e.message);
@@ -488,6 +491,11 @@ export default {
         category: form.value.category,
         content: sanitizeHtml(form.value.content),
         expireAt: form.value.expireAt || '',
+        // 【D-6 修复】公告默认定向到当前科室，避免安全科公告推给环保全员、反之亦然。
+        // 历史公告 targetDept 为空，仍全员可见（向后兼容）。
+        targetDept: form.value.targetDept && form.value.targetDept.length
+          ? form.value.targetDept.slice()
+          : [currentDept()],
         attachments: form.value.attachments.slice(),
         updatedAt: new Date().toISOString()
       }, extra || {});

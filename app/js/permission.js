@@ -56,12 +56,27 @@ export function isRelated(user, issue) {
   return isReporter(user, issue) || isAssignee(user, issue);
 }
 
-// 按角色过滤隐患列表（对齐 APK issues getter）
+// 【多科室隔离】角色 + 科室双层过滤
+//
+// 之所以在 filterIssuesByRole 这一个函数里同时套两层，而不是让各页面自己加 dept 过滤：
+//   dashboard（统计/排名）、hazards（列表、导出）共 4 处调用点都走这里，
+//   漏一处就会出现「列表干净、但导出文件里混着对方科室数据」这类事故。
+//
+// ⚠️ 这是**前端兜底**，不是安全边界。真正的边界在云函数
+//    （cloudfunction_security/index.js 的 scopeQuery 强制注入 deptCode）。
+//    这里的作用是在服务端过滤尚未开启（ENFORCE_DEPT_FILTER=false）的过渡期，
+//    保证界面上不出现跨科室混淆。
+import { inCurrentDept } from './dept.js';
+
+// 按角色 + 科室过滤隐患列表（对齐 APK issues getter）
 export function filterIssuesByRole(user, issues) {
   const list = Array.isArray(issues) ? issues : [];
-  if (isAdmin(user)) return list;
-  if (isViewer(user)) return [];
-  return list.filter(i => isRelated(user, i));
+  const scoped = list.filter(i => inCurrentDept(i));
+  if (isAdmin(user)) return scoped;
+  // 【D-7 修复】只读查看员：按科室可见全部本科室隐患，但不参与整改/验收。
+  // 原实现直接 return []，导致只读账号形同虚设。
+  if (isViewer(user)) return scoped;
+  return scoped.filter(i => isRelated(user, i));
 }
 
 // ---------- 操作权限 ----------

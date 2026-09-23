@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { store, logout, toggleSidebar, closeSidebar } from './store.js';
 import { route, navigate, topPath, back } from './router.js';
 import Login from './views/login.js';
+import { currentDept, deptInfo, availableDepts, switchDept } from './dept.js';
 import Dashboard from './views/dashboard.js';
 import Hazards from './views/hazards.js';
 import Users from './views/users.js';
@@ -69,6 +70,22 @@ const App = {
           <span v-if="route.path !== '/'" class="back-btn" @click="onBack" title="返回上一级"><ArrowLeft style="width:16px;height:16px" /></span>
           <span class="crumb">{{ title }}</span>
           <span class="spacer"></span>
+          <!-- 科室标识：常驻显示，切换前先确认并清缓存，避免误把数据填到另一个科室 -->
+          <el-dropdown v-if="canSwitchDept" trigger="click" @command="onSwitchDept">
+            <span class="dept-badge" :style="{ background: dept.color }" :title="dept.name">
+              <span>{{ dept.icon }}</span><span>{{ dept.short }}</span>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item v-for="d in myDepts" :key="d.code" :command="d.code" :disabled="d.code === dept.code">
+                  {{ d.icon }} {{ d.name }}<span v-if="d.code === dept.code">（当前）</span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+          <span v-else class="dept-badge static" :style="{ background: dept.color }" :title="dept.name">
+            <span>{{ dept.icon }}</span><span>{{ dept.short }}</span>
+          </span>
           <span class="bell" @click="go('/messages')" title="消息催办">🔔<span v-if="store.unread" class="dot">{{ store.unread }}</span></span>
           <el-dropdown @command="onCmd">
             <span class="user"><span class="avatar">{{ initial }}</span><span>{{ store.user && store.user.name }}</span></span>
@@ -92,6 +109,29 @@ const App = {
       return m ? m.title : 'GZ环保巡查管理系统';
     });
     const initial = computed(() => ((store.user && store.user.name) || '?').slice(0, 1));
+    // 只在确实归属多个科室时才给切换入口 —— 单人单科室的用户不该看到选择器
+    const myDepts = computed(() => availableDepts(store.user).map(deptInfo));
+    const canSwitchDept = computed(() => myDepts.value.length > 1);
+    // currentDept() 读 localStorage，本身不响应；切换成功后由 reload 兜底刷新界面
+    const dept = computed(() => deptInfo(currentDept()));
+
+    async function onSwitchDept(code) {
+      if (code === currentDept()) return;
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          `切换到「${deptInfo(code).name}」后，当前页面未提交的内容会丢失，且需要重新加载数据。确定切换吗？`,
+          '切换科室',
+          { type: 'warning', confirmButtonText: '确定切换', cancelButtonText: '取消' }
+        );
+      } catch (e) {
+        return; // 用户取消
+      }
+      if (!switchDept(code)) return;
+      // 必须清缓存：缓存键虽已带科室前缀，但业务集合在切换后需要按新科室重新取
+      api.clearCache();
+      navigate('/');
+      location.reload();
+    }
     function iconOf(name) {
       const comp = ElementPlusIconsVue && ElementPlusIconsVue[name];
       if (!comp) console.warn('[app] 菜单图标不存在:', name);
@@ -137,6 +177,7 @@ const App = {
     return {
       Login, store, route, menus, currentView, title, initial, fatalError, topPath,
       iconOf, go, onBack, onCmd, toggleSidebar, closeSidebar,
+      dept, myDepts, canSwitchDept, onSwitchDept,
       ArrowLeft: ElementPlusIconsVue.ArrowLeft
     };
   }

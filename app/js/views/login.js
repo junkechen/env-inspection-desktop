@@ -1,6 +1,7 @@
 import { api, setSession } from '../api.js';
 import { setUser } from '../store.js';
 import { navigate } from '../router.js';
+import { syncDeptFromUser } from '../dept.js';
 
 export default {
   template: `
@@ -36,8 +37,15 @@ export default {
       loading.value = true;
       try {
         const res = await api.login(username.value, password.value);
-        setSession(res.token, res.user);
-        setUser(res.user);
+        // deptCodes 由服务端在登录时算好，这里补到 user 上一起持久化，
+        // 供科室切换入口判断"这个人能进哪些科室"。
+        const user = Object.assign({}, res.user, {
+          deptCodes: res.deptCodes || (res.user && res.user.deptCodes) || []
+        });
+        setSession(res.token, user);
+        setUser(user);
+        // 登录时不让用户选科室；只在当前值越界时才纠正（单人单科室不会被动改写）
+        syncDeptFromUser(user);
         ElMessage.success('登录成功');
         navigate('/');
       } catch (e) {

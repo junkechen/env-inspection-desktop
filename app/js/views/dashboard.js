@@ -4,7 +4,8 @@ import { navigate } from '../router.js';
 import { isAdmin, filterIssuesByRole, filterMessagesByUser } from '../permission.js';
 import { computeStats } from '../stats_utils.js';
 import { resolveIssuePhotos, resolveHtmlImages } from '../image_utils.js';
-import { visibleAnnouncements, sanitizeHtml, CATEGORY_MAP as ANN_CATEGORY_MAP } from '../announcement.js';
+import { visibleAnnouncements, sanitizeHtml, matchTargetDept, CATEGORY_MAP as ANN_CATEGORY_MAP } from '../announcement.js';
+import { currentDept } from '../dept.js';
 import { onUpdate, cachedAt } from '../cache.js';
 import { fetchLatest, promptAndUpdate, silentStartupCheck } from '../update.js';
 
@@ -495,7 +496,8 @@ export default {
     async function loadAnnouncements(user) {
       try {
         const r = await api.announcements({ includeExpired: true });
-        const visible = visibleAnnouncements(user, r.list || [], Date.now());
+        const visible = visibleAnnouncements(user, r.list || [], Date.now())
+          .filter(a => matchTargetDept(a, currentDept()));
         announcements.value = visible.slice(0, 5);
         const ids = announcements.value.map(a => a._id);
         annRead.value = ids.length ? await api.announcementStats(ids, user) : {};
@@ -578,7 +580,7 @@ export default {
       if (categoryEl.value && !category) category = echarts.init(categoryEl.value, 'dark', { renderer: 'canvas' });
 
       const commonAxis = {
-        axisLabel: { color: 'var(--c-text-soft)' },
+        axisLabel: { color: '#e5e7eb' },
         axisLine: { lineStyle: { color: 'var(--c-border)' } },
         splitLine: { lineStyle: { color: 'rgba(148,163,184,.12)' } }
       };
@@ -587,9 +589,9 @@ export default {
       if (trend) trend.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'axis', backgroundColor: 'rgba(11,18,32,.95)', borderColor: 'var(--c-border)', textStyle: { color: '#fff' } },
-        legend: { textStyle: { color: 'var(--c-text-soft)' }, top: 0 },
+        legend: { textStyle: { color: '#e5e7eb' }, top: 0 },
         grid: { left: 40, right: 20, top: 36, bottom: 40 },
-        xAxis: { type: 'category', data: s.trend.map(x => x.date.slice(5)), axisLabel: { color: 'var(--c-text-soft)', interval: 3 }, axisLine: { lineStyle: { color: 'var(--c-border)' } } },
+        xAxis: { type: 'category', data: s.trend.map(x => x.date.slice(5)), axisLabel: { color: '#e5e7eb', interval: 3 }, axisLine: { lineStyle: { color: 'var(--c-border)' } } },
         yAxis: { type: 'value', minInterval: 1, ...commonAxis },
         series: [
           { name: '新增', type: 'line', smooth: true, data: s.trend.map(x => x.created), itemStyle: { color: '#00e5a0' }, lineStyle: { width: 3, shadowColor: 'rgba(0,229,160,.5)', shadowBlur: 12 }, areaStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(0,229,160,.35)'},{offset:1,color:'rgba(0,229,160,.02)'}]) } },
@@ -601,7 +603,7 @@ export default {
       if (severity) severity.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'item', backgroundColor: 'rgba(11,18,32,.95)', borderColor: 'var(--c-border)', textStyle: { color: '#fff' } },
-        legend: { bottom: 0, textStyle: { color: 'var(--c-text-soft)' } },
+        legend: { bottom: 0, textStyle: { color: '#e5e7eb' } },
         series: [{
           type: 'pie', radius: ['0%', '60%'], center: ['50%', '45%'],
           itemStyle: { borderRadius: 6, borderColor: 'var(--c-bg)', borderWidth: 2 },
@@ -619,7 +621,7 @@ export default {
         backgroundColor: 'transparent',
         tooltip: { trigger: 'axis', backgroundColor: 'rgba(11,18,32,.95)', borderColor: 'var(--c-border)', textStyle: { color: '#fff' } },
         grid: { left: 50, right: 20, top: 20, bottom: 50 },
-        xAxis: { type: 'category', data: s.byDepartment.map(d => d.name), axisLabel: { interval: 0, rotate: 18, color: 'var(--c-text-soft)' }, axisLine: { lineStyle: { color: 'var(--c-border)' } } },
+        xAxis: { type: 'category', data: s.byDepartment.map(d => d.name), axisLabel: { interval: 0, rotate: 30, color: '#e5e7eb', fontSize: 11, hideOverlap: true }, axisLine: { lineStyle: { color: 'var(--c-border)' } } },
         yAxis: { type: 'value', minInterval: 1, ...commonAxis },
         series: [{ type: 'bar', data: s.byDepartment.map(d => d.value), itemStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#f59e0b'},{offset:1,color:'#b45309'}]), borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#fff' } }]
       }, true);
@@ -628,7 +630,7 @@ export default {
       if (pie) pie.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'item', backgroundColor: 'rgba(11,18,32,.95)', borderColor: 'var(--c-border)', textStyle: { color: '#fff' } },
-        legend: { bottom: 0, textStyle: { color: 'var(--c-text-soft)' } },
+        legend: { bottom: 0, textStyle: { color: '#e5e7eb' } },
         series: [{
           type: 'pie', radius: ['42%', '66%'], center: ['50%', '45%'],
           itemStyle: { borderRadius: 6, borderColor: 'var(--c-bg)', borderWidth: 2 },
@@ -646,7 +648,7 @@ export default {
       if (category) category.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'item', backgroundColor: 'rgba(11,18,32,.95)', borderColor: 'var(--c-border)', textStyle: { color: '#fff' } },
-        legend: { bottom: 0, textStyle: { color: 'var(--c-text-soft)' } },
+        legend: { bottom: 0, textStyle: { color: '#e5e7eb' } },
         series: [{
           type: 'pie', radius: ['40%', '70%'], center: ['50%', '45%'],
           itemStyle: { borderRadius: 6, borderColor: 'var(--c-bg)', borderWidth: 2 },

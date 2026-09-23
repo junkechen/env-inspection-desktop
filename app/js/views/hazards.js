@@ -4,6 +4,7 @@ import { buildExcelWorkbook, buildPdfHtml } from '../export_utils.js';
 import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
 import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
+import { currentDept, categoryOptions } from '../dept.js';
 
 const STATUS_OPTS = [
   { value: 'pending', label: STATUS_MAP.pending },
@@ -11,7 +12,8 @@ const STATUS_OPTS = [
   { value: 'reviewing', label: STATUS_MAP.reviewing },
   { value: 'closed', label: STATUS_MAP.closed }
 ];
-const CATEGORY_OPTS = ['废水排放', '废气排放', '固废管理', '噪音污染', '其他'];
+// 类别按当前科室切换。库里存的仍是中文（历史数据零迁移），
+// 两个科室都各有「其他」，因此类别本身不足以判定归属，归属以 deptCode 为准（dept.js hazardDeptOf）。
 const SEVERITY_OPTS = [
   { value: 'general', label: SEVERITY_MAP.general },
   { value: 'serious', label: SEVERITY_MAP.serious },
@@ -607,8 +609,11 @@ export default {
       load();
     });
 
+    // 类别下拉随当前科室变化；切换科室后必须重取，否则会带着上一科室的选项
+    const categoryOpts = computed(() => categoryOptions(currentDept()));
+
     return {
-      STATUS_OPTS, SEVERITY_OPTS, CATEGORY_OPTS, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
+      STATUS_OPTS, SEVERITY_OPTS, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
       kw, filterStatus, filterDept, filterSeverity, depts, rectifiers, me,
       canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue,
       detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, saving, uploading, exporting, overdueOnly, form,

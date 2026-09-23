@@ -135,8 +135,26 @@ function stableKey(query) {
 }
 
 // 集合缓存键：集合名 + 稳定序列化后的查询条件
+import { currentDept } from './dept.js';
+
+/**
+ * 缓存键 —— 必须带科室维度。
+ *
+ * 原实现是 'col:' + collection + ':' + stableKey(query)。隐患查询恰好是空 query
+ * （pc 端 queryCollection('hazards') 全量拉取），于是键恒为 'col:hazards:{}'，
+ * 且 TTL 60s + localStorage 持久化。**加上科室切换后，两个科室会共用同一条缓存**：
+ * 环保用户切到安全科，60 秒内看到的仍是环保的旧数据，关掉软件重开也一样。
+ *
+ * 这类"看起来隔离了、实际是脏数据"的问题极难排查 —— 服务端返回正确、
+ * 前端代码也没写错，但屏幕上就是另一个科室的数据。所以缓存键从最底层就带上科室。
+ */
 function collectionKey(collection, query) {
-  return 'col:' + collection + ':' + stableKey(query);
+  return 'col:' + currentDept() + ':' + collection + ':' + stableKey(query);
+}
+
+/** 某集合在当前科室下的缓存前缀（失效/取更新时间用） */
+export function cachePrefix(collection) {
+  return 'col:' + currentDept() + ':' + (collection || '');
 }
 
 // 统一查询入口：同一集合 + 同一查询在 TTL 内只发一次网络请求。
@@ -189,22 +207,22 @@ export const api = {
   // 写操作后失效对应集合的缓存，否则界面会继续显示改前的数据
   createUser: async (u) => {
     const r = await rpc('add', { collection: 'users', data: u });
-    invalidate('col:users');
+    invalidate(cachePrefix('users'));
     return r;
   },
   updateUser: async (id, u) => {
     const r = await rpc('update', { collection: 'users', query: { _id: id }, data: u });
-    invalidate('col:users');
+    invalidate(cachePrefix('users'));
     return r;
   },
   deleteUser: async (id) => {
     const r = await rpc('update', { collection: 'users', query: { _id: id }, data: { status: 'disabled', isActive: false } });
-    invalidate('col:users');
+    invalidate(cachePrefix('users'));
     return r;
   },
   resetPassword: async (id) => {
     const r = await rpc('update', { collection: 'users', query: { _id: id }, data: { password: '123456' } });
-    invalidate('col:users');
+    invalidate(cachePrefix('users'));
     return r;
   },
 
@@ -215,17 +233,17 @@ export const api = {
   },
   createDept: async (d) => {
     const r = await rpc('add', { collection: 'departments', data: d });
-    invalidate('col:departments');
+    invalidate(cachePrefix('departments'));
     return r;
   },
   updateDept: async (id, d) => {
     const r = await rpc('update', { collection: 'departments', query: { _id: id }, data: d });
-    invalidate('col:departments');
+    invalidate(cachePrefix('departments'));
     return r;
   },
   deleteDept: async (id) => {
     const r = await rpc('update', { collection: 'departments', query: { _id: id }, data: { isDeleted: true } });
-    invalidate('col:departments');
+    invalidate(cachePrefix('departments'));
     return r;
   },
 
@@ -250,12 +268,12 @@ export const api = {
   },
   createHazard: async (h) => {
     const r = await rpc('add', { collection: 'hazards', data: h });
-    invalidate('col:hazards');
+    invalidate(cachePrefix('hazards'));
     return r;
   },
   updateHazard: async (id, h) => {
     const r = await rpc('update', { collection: 'hazards', query: { _id: id }, data: h });
-    invalidate('col:hazards');
+    invalidate(cachePrefix('hazards'));
     return r;
   },
   // 详情直接命中已缓存的集合，避免为单条数据再发一次网络请求
@@ -266,7 +284,7 @@ export const api = {
   remindHazard: async (id, content) => {
     const r = await rpc('sendReminder', { data: { issueId: id, content } });
     // 催办会新增消息，消息列表需刷新
-    invalidate('col:message');
+    invalidate(cachePrefix('message'));
     return r;
   },
 
@@ -288,7 +306,7 @@ export const api = {
   },
   readMessage: async (id) => {
     const r = await rpc('update', { collection: 'message', query: { _id: id }, data: { isRead: true } });
-    invalidate('col:message');
+    invalidate(cachePrefix('message'));
     return r;
   },
   readAllMessages: async (ids, onProgress) => {
@@ -297,7 +315,7 @@ export const api = {
     // 优先尝试云端 updateMany（一次改多条）；若云端未部署则降级为逐条 update
     try {
       await rpc('updateMany', { collection: 'message', query: { _id: { $in: list } }, data: { isRead: true } });
-      invalidate('col:message');
+      invalidate(cachePrefix('message'));
       return true;
     } catch (e) {
       if (e && e.message && /unknown|未知|updateMany/i.test(e.message)) {
@@ -310,7 +328,7 @@ export const api = {
           ));
           if (typeof onProgress === 'function') onProgress(Math.min(i + batch, list.length), list.length);
         }
-        invalidate('col:message');
+        invalidate(cachePrefix('message'));
         return true;
       }
       throw e;
@@ -366,7 +384,7 @@ export const api = {
     } catch (e) {
       throw annAddHint(e);
     }
-    invalidate('col:' + ANN_COL);
+    invalidate(cachePrefix(ANN_COL));
     // 云端 add 通常不回传 _id（实测该云函数如此），能拿到就返回，拿不到返回空串，
     // 由调用方决定是否需要补写关联数据（如审计日志）。
     const d = r && r.data;
@@ -374,7 +392,7 @@ export const api = {
   },
   updateAnnouncement: async (id, a) => {
     const r = await rpc('update', { collection: ANN_COL, query: { _id: id }, data: a });
-    invalidate('col:' + ANN_COL);
+    invalidate(cachePrefix(ANN_COL));
     return r;
   },
   // 软删除：云端无 remove 动作，只能置标记
@@ -383,7 +401,7 @@ export const api = {
       collection: ANN_COL, query: { _id: id },
       data: { isDeleted: true, deletedAt: new Date().toISOString(), deletedBy: who || '' }
     });
-    invalidate('col:' + ANN_COL);
+    invalidate(cachePrefix(ANN_COL));
     return r;
   },
 
@@ -453,7 +471,7 @@ export const api = {
       await api.writeAnnouncementAudit(a._id, 'archive', user,
         '到达过期时间，系统自动归档：' + (a.title || '')).catch(() => null);
     }
-    invalidate('col:' + ANN_COL);
+    invalidate(cachePrefix(ANN_COL));
     return expired.length;
   },
 
@@ -489,7 +507,8 @@ export const api = {
     }
   },
   // 强制刷新指定集合（各页面刷新按钮可用）；不传参则刷新全部集合缓存
-  refreshCache: (collection) => invalidate('col:' + (collection || '')),
+  // 注意前缀必须带科室（cachePrefix），否则命中不到实际键值
+  refreshCache: (collection) => invalidate(cachePrefix(collection)),
   // 清空本应用写入的全部本地缓存
   clearCache: () => invalidate('')
 };

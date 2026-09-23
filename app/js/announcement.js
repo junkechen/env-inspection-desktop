@@ -170,6 +170,9 @@ export function normalize(a) {
     status: o.status || STATUS.DRAFT,
     pinned: o.pinned === true,
     expireAt: o.expireAt || '',
+    // 【D-6 修复】公告定向：为空数组表示全员广播（向后兼容历史公告）；
+    // 非空时仅 targetDept 内的科室可见，避免安全科公告推给环保全员、反之亦然。
+    targetDept: Array.isArray(o.targetDept) ? o.targetDept : [],
     attachments: Array.isArray(o.attachments) ? o.attachments : [],
     isDeleted: o.isDeleted === true,
     createdAt: o.createdAt || '',
@@ -239,6 +242,14 @@ export function matchFilters(a, params, now) {
 export function filterAnnouncements(list, params, now) {
   const arr = Array.isArray(list) ? list.slice() : [];
   return arr.filter(a => matchFilters(a, params, now));
+}
+
+// 【D-6】公告按科室定向：targetDept 为空（历史公告）= 全员可见；
+// 非空时仅当 deptCode 命中其一才可见。纯函数，便于 node 单测。
+export function matchTargetDept(a, deptCode) {
+  const td = Array.isArray(a && a.targetDept) ? a.targetDept : [];
+  if (td.length === 0) return true;
+  return td.indexOf(deptCode) !== -1;
 }
 
 // ---------- 权限与可见性 ----------

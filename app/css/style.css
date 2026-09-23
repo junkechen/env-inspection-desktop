@@ -83,6 +83,17 @@ body {
 .back-inline { display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;cursor:pointer;color:var(--c-text-soft);transition:.2s; }
 .back-inline:hover { background:rgba(148,163,184,.15); color:#fff; }
 .topbar .spacer { flex: 1; }
+/* 科室标识：常驻显示当前处于哪个科室的业务空间，颜色与该科室主题色一致。
+   两个科室共用同一套界面，缺少这个标识时用户极易忘记自己在哪一侧操作。 */
+.topbar .dept-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 10px; margin-right: 4px;
+  border-radius: 13px; color: #fff; font-size: 12px; font-weight: 600;
+  letter-spacing: .5px; white-space: nowrap;
+  box-shadow: 0 0 10px rgba(0,0,0,.25);
+}
+.topbar .dept-badge:not(.static) { cursor: pointer; }
+.topbar .dept-badge.static { opacity: .9; }
 .topbar .bell { position: relative; font-size: 20px; cursor: pointer; color: var(--c-text-soft); }
 .topbar .bell .dot {
   position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px;

@@ -1,5 +1,6 @@
 // 全局状态（Vue reactive）+ localStorage 持久化
 import { getStoredUser, clearSession } from './api.js';
+import { resetDept } from './dept.js';
 
 const { reactive } = Vue;
 
@@ -16,6 +17,8 @@ export const store = reactive({
 export function setUser(u) { store.user = u; }
 export function logout() {
   clearSession();
+  // 清掉当前科室，否则下一个人登录会先落到上一个用户的科室视图
+  resetDept();
   store.user = null;
   location.hash = '#/login';
 }
