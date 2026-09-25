@@ -1,18 +1,13 @@
 import { api, ROLE_MAP } from '../api.js';
+import { BUSINESS_OPTS, businessNames } from '../business.js';
+import { canManageUsers } from '../permission.js';
+import { store } from '../store.js';
 
 const ROLE_OPTS = Object.entries(ROLE_MAP).map(([value, label]) => ({ value, label }));
-// 业务类型：用户负责的业务领域，支持单选/多选。与「科室」（数据隔离维度）相互独立。
-const BUSINESS_TYPES = [
-  { code: 'SAFE', name: '安全业务' },
-  { code: 'ENERGY', name: '能源环保业务' },
-  { code: 'SITE', name: '现场业务' },
-  { code: 'EQUIP', name: '设备业务' },
-];
-const BUSINESS_OPTS = BUSINESS_TYPES.map((b) => ({ value: b.code, label: b.name }));
 
 export default {
   template: `
-  <div>
+  <div v-if="allowed">
     <h2 class="page-title">用户管理</h2>
     <p class="page-sub">巡检人员与管理人员账户维护</p>
 
@@ -102,11 +97,17 @@ export default {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+  </div>
+  <div v-else style="padding:60px;text-align:center">
+    <el-result icon="warning" title="无访问权限" sub-title="用户管理仅限管理员使用，请联系管理员" />
   </div>`,
   setup() {
     const { ref, reactive } = Vue;
     const { ElMessage, ElMessageBox } = ElementPlus;
     const { Search, Refresh, Plus, Edit, Delete, Key, ArrowDown } = ElementPlusIconsVue;
+
+    // 视图守卫（第二道防线）：菜单/路由已拦截非管理员，这里兜底防止直达
+    const allowed = canManageUsers(store.user);
 
     const list = ref([]);
     const total = ref(0);
@@ -122,12 +123,6 @@ export default {
     const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
 
     function roleLabel(r) { return (ROLE_OPTS.find((x) => x.value === r) || {}).label || r; }
-    // 行内业务类型显示：取该用户 businessTypes（缺省显示「—」）
-    function businessLabels(row) {
-      const codes = (row && Array.isArray(row.businessTypes) && row.businessTypes.length) ? row.businessTypes : [];
-      const names = codes.map((c) => (BUSINESS_TYPES.find((b) => b.code === c) || {}).name || c);
-      return names.join(' / ') || '—';
-    }
 
     async function load() {
       loading.value = true;
@@ -214,8 +209,8 @@ export default {
 
     load();
     return {
-      ROLE_OPTS, BUSINESS_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
-      roleLabel, businessLabels, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove, onCmd,
+      allowed, ROLE_OPTS, BUSINESS_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
+      roleLabel, businessLabels: businessNames, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove, onCmd,
       Search, Refresh, Plus, Edit, Delete, Key, ArrowDown
     };
   }

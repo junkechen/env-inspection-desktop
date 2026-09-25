@@ -1,6 +1,8 @@
 import { api } from './api.js';
 import { store, logout, toggleSidebar, closeSidebar } from './store.js';
 import { route, navigate, topPath, back } from './router.js';
+import { canManageUsers } from './permission.js';
+import { businessInfos, businessShortLabel } from './business.js';
 import Login from './views/login.js';
 import { currentDept, deptInfo, availableDepts, switchDept } from './dept.js';
 import Dashboard from './views/dashboard.js';
@@ -16,7 +18,8 @@ const menus = [
   { path: '/', title: '仪表盘', icon: 'Odometer' },
   { path: '/announcements', title: '公告栏', icon: 'Notification' },
   { path: '/hazards', title: '隐患管理', icon: 'Warning' },
-  { path: '/users', title: '用户管理', icon: 'User' },
+  // 仅管理员可见（权限漏洞修复：此前普通用户也能进用户管理改人/审批）
+  { path: '/users', title: '用户管理', icon: 'User', adminOnly: true },
   { path: '/departments', title: '部门/车间', icon: 'OfficeBuilding' },
   { path: '/messages', title: '消息催办', icon: 'Bell' }
 ];
@@ -57,7 +60,7 @@ const App = {
       <aside class="sidebar" :class="{ open: store.sidebarOpen }">
         <div class="brand"><span class="logo">🌿</span><span>GZ环保巡查</span></div>
         <nav class="menu">
-          <div v-for="m in menus" :key="m.path" class="menu-item"
+          <div v-for="m in visibleMenus" :key="m.path" class="menu-item"
                :class="{ active: topPath(route.path) === m.path }" @click="go(m.path)">
             <span class="ico"><component :is="iconOf(m.icon)" /></span><span>{{ m.title }}</span>
           </div>
@@ -70,7 +73,7 @@ const App = {
           <span v-if="route.path !== '/'" class="back-btn" @click="onBack" title="返回上一级"><ArrowLeft style="width:16px;height:16px" /></span>
           <span class="crumb">{{ title }}</span>
           <span class="spacer"></span>
-          <!-- 科室标识：常驻显示，切换前先确认并清缓存，避免误把数据填到另一个科室 -->
+          <!-- 多科室用户：显示科室切换器；单科室用户：显示本人业务类型徽章（纯展示） -->
           <el-dropdown v-if="canSwitchDept" trigger="click" @command="onSwitchDept">
             <span class="dept-badge" :style="{ background: dept.color }" :title="dept.name">
               <span>{{ dept.icon }}</span><span>{{ dept.short }}</span>
@@ -83,8 +86,8 @@ const App = {
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <span v-else class="dept-badge static" :style="{ background: dept.color }" :title="dept.name">
-            <span>{{ dept.icon }}</span><span>{{ dept.short }}</span>
+          <span v-else class="dept-badge static" :style="{ background: bizColor }" :title="bizTitle">
+            <span>{{ bizIcon }}</span><span>{{ bizLabel }}</span>
           </span>
           <span class="bell" @click="go('/messages')" title="消息催办">🔔<span v-if="store.unread" class="dot">{{ store.unread }}</span></span>
           <el-dropdown @command="onCmd">
@@ -109,11 +112,19 @@ const App = {
       return m ? m.title : 'GZ环保巡查管理系统';
     });
     const initial = computed(() => ((store.user && store.user.name) || '?').slice(0, 1));
+    // 菜单按角色过滤：adminOnly 项（用户管理）只对管理员显示
+    const visibleMenus = computed(() => menus.filter((m) => !m.adminOnly || canManageUsers(store.user)));
     // 只在确实归属多个科室时才给切换入口 —— 单人单科室的用户不该看到选择器
     const myDepts = computed(() => availableDepts(store.user).map(deptInfo));
     const canSwitchDept = computed(() => myDepts.value.length > 1);
     // currentDept() 读 localStorage，本身不响应；切换成功后由 reload 兜底刷新界面
     const dept = computed(() => deptInfo(currentDept()));
+    // 单科室用户右上角显示「业务类型」徽章（跟随 users.businessTypes，编辑用户后重新登录生效）
+    const biz = computed(() => businessInfos(store.user));
+    const bizLabel = computed(() => businessShortLabel(store.user));
+    const bizColor = computed(() => (biz.value.length ? biz.value[0].color : '#64748b'));
+    const bizIcon = computed(() => (biz.value.length ? biz.value[0].icon : '🏷'));
+    const bizTitle = computed(() => (biz.value.length ? biz.value.map((b) => b.name).join(' / ') : '未分配业务类型（管理员可在用户管理中设置）'));
 
     async function onSwitchDept(code) {
       if (code === currentDept()) return;
@@ -151,6 +162,11 @@ const App = {
     watch(() => route.path, (p) => {
       console.log('[app] route.path =', p, 'user=', store.user ? store.user.username : null);
       if (store.user && p === '/login') navigate('/');
+      // 路由守卫：非管理员直达 /users 时拦回首页（菜单已隐藏，这里防手输地址）
+      if (store.user && topPath(p) === '/users' && !canManageUsers(store.user)) {
+        ElementPlus.ElMessage.warning('用户管理仅限管理员使用');
+        navigate('/');
+      }
     });
     onMounted(async () => {
       console.log('[app] mounted. user=', store.user ? store.user.username : null, 'route=', route.path);
@@ -175,9 +191,10 @@ const App = {
     window.__setFatalError = (title, detail) => { fatalError.value = { title, detail }; };
 
     return {
-      Login, store, route, menus, currentView, title, initial, fatalError, topPath,
+      Login, store, route, menus, visibleMenus, currentView, title, initial, fatalError, topPath,
       iconOf, go, onBack, onCmd, toggleSidebar, closeSidebar,
       dept, myDepts, canSwitchDept, onSwitchDept,
+      bizLabel, bizColor, bizIcon, bizTitle,
       ArrowLeft: ElementPlusIconsVue.ArrowLeft
     };
   }
