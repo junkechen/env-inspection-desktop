@@ -1,6 +1,6 @@
 {
   "name": "env-inspection-desktop",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "GZ环保巡查管理系统 - 桌面客户端（Electron 套壳，直连云函数网关，与 APP 共享数据）",
   "main": "main.js",
   "author": "GZ",

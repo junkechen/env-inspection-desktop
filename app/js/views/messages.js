@@ -20,7 +20,8 @@ export default {
     <h2 class="page-title">消息催办</h2>
     <p class="page-sub">系统催办与通知（与移动端同源）</p>
     <div class="toolbar">
-      <el-select v-model="filterRead" placeholder="全部" clearable style="width:120px" @change="onFilterChange">
+      <el-select v-model="filterRead" style="width:120px" @change="onFilterChange">
+        <el-option label="全部" value="" />
         <el-option label="未读" value="false" />
         <el-option label="已读" value="true" />
       </el-select>
@@ -30,7 +31,8 @@ export default {
     </div>
     <div class="card">
       <div class="table-wrap">
-        <el-table :data="pagedList" v-loading="loading" stripe style="width:100%" table-layout="fixed">
+        <el-table :data="pagedList" v-loading="loading" stripe style="width:100%" table-layout="fixed"
+          :empty-text="filterRead === 'false' ? '没有未读消息，可切换「全部」查看历史消息' : '暂无数据'">
           <el-table-column label="标题" width="160" show-overflow-tooltip>
             <template #default="{row}">{{ titleOf(row) }}</template>
           </el-table-column>
@@ -110,7 +112,8 @@ export default {
     const { Refresh, Check } = ElementPlusIconsVue;
     const list = ref([]);
     const loading = ref(false);
-    const filterRead = ref('');
+    // 默认展示「未读」——催办页的用途就是盯未处理的催办；历史消息切「全部」看
+    const filterRead = ref('false');
     const page = ref(1);
     const pageSize = ref(20);
     const detailVisible = ref(false);
@@ -137,8 +140,14 @@ export default {
       loading.value = true;
       try {
         // 不携带 read 参数：一次取回全部，前端做筛选/分页，减少重复拉取
-        const r = await api.messages({ page: 1, size: 0 });
-        const user = store.user;
+        let r = await api.messages({ page: 1, size: 0 });
+        // 兜底：列表为空但云端有未读数，说明大概率命中了过期/空的本地缓存，
+        // 强制失效后再拉一次，避免「全部」页一直显示暂无数据
+        if ((r.list || []).length === 0 && (r.unread || 0) > 0) {
+          api.refreshCache('message');
+          r = await api.messages({ page: 1, size: 0 });
+        }
+        const user = store.user || api.me();
         allMessages = isAdmin(user) ? (r.list || []) : filterMessagesByUser(user, r.list || []);
         // 按时间倒序
         allMessages.sort((a, b) => fmtDate(b.createdAt || b._createTime).localeCompare(fmtDate(a.createdAt || a._createTime)));

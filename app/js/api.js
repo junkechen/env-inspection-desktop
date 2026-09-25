@@ -216,7 +216,10 @@ export const api = {
     return r;
   },
   deleteUser: async (id) => {
-    const r = await rpc('update', { collection: 'users', query: { _id: id }, data: { status: 'disabled', isActive: false } });
+    // 软删除：云端无 delete action，标记 status='deleted'（列表已过滤该状态），
+    // 之前误写为 'disabled'，界面上看起来只是「禁用」而不是删除。
+    // 同时置 isActive=false 并随机化密码，防止该账号再从 APP 端登录。
+    const r = await rpc('update', { collection: 'users', query: { _id: id }, data: { status: 'deleted', isDeleted: true, isActive: false, password: 'Deleted_' + Date.now() } });
     invalidate(cachePrefix('users'));
     return r;
   },

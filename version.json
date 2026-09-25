@@ -1,7 +1,7 @@
 {
-  "version": "1.0.1",
-  "exeName": "GZInspection_v1.0.1.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.1.exe",
-  "notes": "高 DPI 排版修复（表格列宽稳定、整改进度条清晰、用户管理操作列不再错位）；新增基于 Git/Release 的自动更新。",
-  "publishedAt": "2026-09-02"
+  "version": "1.0.2",
+  "exeName": "GZInspection_v1.0.2.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.2.exe",
+  "notes": "修复用户删除仍显示禁用的问题（现为真正删除）；消息催办默认显示未读、新增全部选项；图表标签颜色修复。",
+  "publishedAt": "2026-09-26"
 }
