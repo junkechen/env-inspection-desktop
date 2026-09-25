@@ -1,7 +1,7 @@
 {
-  "version": "1.0.4",
-  "exeName": "GZInspection_v1.0.4.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.4.exe",
-  "notes": "用户管理：编辑/新增用户新增「科室」多选（环保/安全，支持一人多科室），列表新增科室列；修正操作列按钮完整显示。",
+  "version": "1.0.5",
+  "exeName": "GZInspection_v1.0.5.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.5.exe",
+  "notes": "用户管理：操作列改为下拉菜单（操作▾），彻底修复「删除」按钮被固定列裁掉看不见的问题；含业务类型多选分类。",
   "publishedAt": "2026-09-26"
 }

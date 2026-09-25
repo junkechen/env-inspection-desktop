@@ -50,18 +50,25 @@ export default {
             <span v-else class="tag-overdue">禁用</span>
           </template>
         </el-table-column>
-        <!-- 300px：4 个文字按钮一行放下。此前 240px 会把「禁用/删除」裁出可视区，看起来像没有删除选项 -->
-        <el-table-column label="操作" width="300" fixed="right">
+        <!-- 用下拉菜单收纳所有操作，避免固定右列宽度不足把「删除」裁掉（此前 300px 仍不够宽） -->
+        <el-table-column label="操作" width="90" fixed="right">
           <template #default="{row}">
-            <div style="white-space:nowrap">
-              <el-button text type="primary" @click="openEdit(row)">编辑</el-button>
-              <el-button text type="warning" @click="resetPwd(row)">重置密码</el-button>
-              <el-button v-if="row.status==='pending'" text type="success" @click="approve(row)">通过</el-button>
-              <el-button v-else text :type="row.status==='active' ? 'danger' : 'success'" @click="toggle(row)">
-                {{ row.status==='active' ? '禁用' : '启用' }}
+            <el-dropdown @command="(c) => onCmd(c, row)">
+              <el-button text type="primary" size="small">
+                操作<el-icon><ArrowDown /></el-icon>
               </el-button>
-              <el-button text type="danger" @click="remove(row)">删除</el-button>
-            </div>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="edit">编辑</el-dropdown-item>
+                  <el-dropdown-item command="reset">重置密码</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status==='pending'" command="approve">通过审核</el-dropdown-item>
+                  <el-dropdown-item v-else :command="row.status==='active' ? 'disable' : 'enable'">
+                    {{ row.status==='active' ? '禁用' : '启用' }}
+                  </el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -99,7 +106,7 @@ export default {
   setup() {
     const { ref, reactive } = Vue;
     const { ElMessage, ElMessageBox } = ElementPlus;
-    const { Search, Refresh, Plus, Edit, Delete, Key } = ElementPlusIconsVue;
+    const { Search, Refresh, Plus, Edit, Delete, Key, ArrowDown } = ElementPlusIconsVue;
 
     const list = ref([]);
     const total = ref(0);
@@ -195,12 +202,21 @@ export default {
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
+    // 下拉菜单分发：编辑/重置密码/通过审核/禁用或启用/删除
+    function onCmd(cmd, row) {
+      if (cmd === 'edit') return openEdit(row);
+      if (cmd === 'reset') return resetPwd(row);
+      if (cmd === 'approve') return approve(row);
+      if (cmd === 'delete') return remove(row);
+      if (cmd === 'disable') return toggle(row);
+      if (cmd === 'enable') return toggle(row);
+    }
 
     load();
     return {
       ROLE_OPTS, BUSINESS_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
-      roleLabel, businessLabels, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove,
-      Search, Refresh, Plus, Edit, Delete, Key
+      roleLabel, businessLabels, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove, onCmd,
+      Search, Refresh, Plus, Edit, Delete, Key, ArrowDown
     };
   }
 };
