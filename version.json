@@ -1,7 +1,7 @@
 {
-  "version": "1.0.2",
-  "exeName": "GZInspection_v1.0.2.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.2.exe",
-  "notes": "修复用户删除仍显示禁用的问题（现为真正删除）；消息催办默认显示未读、新增全部选项；图表标签颜色修复。",
+  "version": "1.0.3",
+  "exeName": "GZInspection_v1.0.3.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.3.exe",
+  "notes": "用户管理：新增待审核筛选与审核通过操作，修复删除按钮被遮挡不可见的问题，状态筛选生效；登录：新增记住密码并自动登录。",
   "publishedAt": "2026-09-26"
 }

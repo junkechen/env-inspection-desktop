@@ -12,6 +12,7 @@ export default {
       <el-input v-model="kw" placeholder="姓名/用户名/手机号" clearable style="width:220px" @keyup.enter="search" />
       <el-select v-model="filterStatus" placeholder="状态" clearable style="width:120px">
         <el-option label="启用" value="active" />
+        <el-option label="待审核" value="pending" />
         <el-option label="禁用" value="disabled" />
       </el-select>
       <el-button type="primary" :icon="Search" @click="search">查询</el-button>
@@ -31,18 +32,23 @@ export default {
         <el-table-column prop="department" label="部门" width="120" />
         <el-table-column label="状态" width="90">
           <template #default="{row}">
-            <span :class="row.status==='active' ? 'tag-closed' : 'tag-overdue'">{{ row.status==='active' ? '启用' : '禁用' }}</span>
+            <!-- pending = APP 端注册后等待管理员审核 -->
+            <span v-if="row.status==='pending'" class="tag-pending">待审核</span>
+            <span v-else-if="row.status==='active'" class="tag-closed">启用</span>
+            <span v-else class="tag-overdue">禁用</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <!-- 300px：4 个文字按钮一行放下。此前 240px 会把「禁用/删除」裁出可视区，看起来像没有删除选项 -->
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{row}">
             <div style="white-space:nowrap">
-              <el-button text type="primary" :icon="Edit" @click="openEdit(row)">编辑</el-button>
-              <el-button text type="warning" :icon="Key" @click="resetPwd(row)">重置密码</el-button>
-              <el-button text :type="row.status==='active' ? 'danger' : 'success'" @click="toggle(row)">
+              <el-button text type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button text type="warning" @click="resetPwd(row)">重置密码</el-button>
+              <el-button v-if="row.status==='pending'" text type="success" @click="approve(row)">通过</el-button>
+              <el-button v-else text :type="row.status==='active' ? 'danger' : 'success'" @click="toggle(row)">
                 {{ row.status==='active' ? '禁用' : '启用' }}
               </el-button>
-              <el-button text type="danger" :icon="Delete" @click="remove(row)">删除</el-button>
+              <el-button text type="danger" @click="remove(row)">删除</el-button>
             </div>
           </template>
         </el-table-column>
@@ -140,6 +146,15 @@ export default {
         load();
       } catch (e) { ElMessage.error(e.message); }
     }
+    // 审核通过：APP 端注册的用户初始 status='pending'、isActive=false，
+    // 通过后置为启用，账号才可登录
+    async function approve(row) {
+      try {
+        await api.updateUser(row._id, { status: 'active', isActive: true });
+        ElMessage.success('已通过审核，账号已启用');
+        load();
+      } catch (e) { ElMessage.error(e.message); }
+    }
     async function resetPwd(row) {
       try {
         await api.resetPassword(row._id);
@@ -160,7 +175,7 @@ export default {
     load();
     return {
       ROLE_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
-      roleLabel, search, reset, onPage, openCreate, openEdit, save, toggle, resetPwd, remove,
+      roleLabel, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove,
       Search, Refresh, Plus, Edit, Delete, Key
     };
   }

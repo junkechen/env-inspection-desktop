@@ -195,6 +195,10 @@ export const api = {
   users: async (params = {}) => {
     const all = await queryCollection('users');
     let list = all.filter(u => u.status !== 'deleted');
+    // 状态筛选（active/pending/disabled）；此前漏了这段，下拉选什么都返回全部
+    if (params.status && params.status !== 'all') {
+      list = list.filter(u => (u.status || 'active') === params.status);
+    }
     const kw = (params.keyword || '').trim();
     if (kw) {
       list = list.filter(u =>
