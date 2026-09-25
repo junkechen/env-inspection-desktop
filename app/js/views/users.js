@@ -1,9 +1,14 @@
 import { api, ROLE_MAP } from '../api.js';
-import { DEPTS } from '../dept.js';
 
 const ROLE_OPTS = Object.entries(ROLE_MAP).map(([value, label]) => ({ value, label }));
-// 科室（业务域）下拉选项：value=科室编码，label=科室简称
-const DEPT_OPTS = DEPTS.map((d) => ({ value: d.code, label: d.short }));
+// 业务类型：用户负责的业务领域，支持单选/多选。与「科室」（数据隔离维度）相互独立。
+const BUSINESS_TYPES = [
+  { code: 'SAFE', name: '安全业务' },
+  { code: 'ENERGY', name: '能源环保业务' },
+  { code: 'SITE', name: '现场业务' },
+  { code: 'EQUIP', name: '设备业务' },
+];
+const BUSINESS_OPTS = BUSINESS_TYPES.map((b) => ({ value: b.code, label: b.name }));
 
 export default {
   template: `
@@ -33,9 +38,9 @@ export default {
           <template #default="{row}">{{ roleLabel(row.role) }}</template>
         </el-table-column>
         <el-table-column prop="department" label="部门" width="120" />
-        <!-- 科室：业务归属（环保/安全），可多归属；无字段时兜底显示环保 -->
-        <el-table-column label="科室" width="120">
-          <template #default="{row}">{{ deptLabels(row) }}</template>
+        <!-- 业务类型：用户负责的业务领域（安全/能源环保/现场/设备），可单选或多选 -->
+        <el-table-column label="业务类型" width="170">
+          <template #default="{row}">{{ businessLabels(row) }}</template>
         </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{row}">
@@ -78,9 +83,9 @@ export default {
           </el-select>
         </el-form-item>
         <el-form-item label="部门"><el-input v-model="form.department" /></el-form-item>
-        <el-form-item label="科室">
-          <el-select v-model="form.deptCodes" multiple style="width:100%" placeholder="可多选">
-            <el-option v-for="d in DEPT_OPTS" :key="d.value" :label="d.label" :value="d.value" />
+        <el-form-item label="业务类型">
+          <el-select v-model="form.businessTypes" multiple style="width:100%" placeholder="可单选或多选">
+            <el-option v-for="b in BUSINESS_OPTS" :key="b.value" :label="b.label" :value="b.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="密码" v-if="!editing"><el-input v-model="form.password" placeholder="默认123456" /></el-form-item>
@@ -107,15 +112,14 @@ export default {
     const editing = ref(false);
     const saving = ref(false);
     const editingId = ref(null);
-    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', deptCodes: ['JN'], password: '123456' });
+    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
 
     function roleLabel(r) { return (ROLE_OPTS.find((x) => x.value === r) || {}).label || r; }
-    // 行内科室显示：取该用户 deptCodes（缺省兜底环保），映射成「环保 / 安全」
-    function deptLabels(row) {
-      const codes = (row && (row.deptCodes || (row.deptCode ? [row.deptCode] : []))) || [];
-      const valid = codes.length ? codes : ['JN'];
-      const names = valid.map((c) => (DEPTS.find((d) => d.code === c) || {}).short || c);
-      return names.join(' / ');
+    // 行内业务类型显示：取该用户 businessTypes（缺省显示「—」）
+    function businessLabels(row) {
+      const codes = (row && Array.isArray(row.businessTypes) && row.businessTypes.length) ? row.businessTypes : [];
+      const names = codes.map((c) => (BUSINESS_TYPES.find((b) => b.code === c) || {}).name || c);
+      return names.join(' / ') || '—';
     }
 
     async function load() {
@@ -133,15 +137,13 @@ export default {
 
     function openCreate() {
       editing.value = false; editingId.value = null;
-      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', deptCodes: ['JN'], password: '123456' });
+      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
       dialogVisible.value = true;
     }
     function openEdit(row) {
       editing.value = true; editingId.value = row._id;
-      const codes = Array.isArray(row.deptCodes) && row.deptCodes.length
-        ? row.deptCodes
-        : (row.deptCode ? [row.deptCode] : ['JN']);
-      Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, deptCodes: codes });
+      const bt = Array.isArray(row.businessTypes) ? row.businessTypes : [];
+      Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, businessTypes: bt });
       dialogVisible.value = true;
     }
     async function save() {
@@ -196,8 +198,8 @@ export default {
 
     load();
     return {
-      ROLE_OPTS, DEPT_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
-      roleLabel, deptLabels, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove,
+      ROLE_OPTS, BUSINESS_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
+      roleLabel, businessLabels, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove,
       Search, Refresh, Plus, Edit, Delete, Key
     };
   }
