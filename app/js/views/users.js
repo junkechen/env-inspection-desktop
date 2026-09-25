@@ -1,5 +1,5 @@
 import { api, ROLE_MAP } from '../api.js';
-import { BUSINESS_OPTS, businessNames } from '../business.js';
+import { BUSINESS_OPTS, BUSINESS_ALL_CODES, businessNames } from '../business.js';
 import { canManageUsers } from '../permission.js';
 import { store } from '../store.js';
 
@@ -120,7 +120,7 @@ export default {
     const editing = ref(false);
     const saving = ref(false);
     const editingId = ref(null);
-    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
+    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [...BUSINESS_ALL_CODES], password: '123456' });
 
     function roleLabel(r) { return (ROLE_OPTS.find((x) => x.value === r) || {}).label || r; }
 
@@ -139,12 +139,13 @@ export default {
 
     function openCreate() {
       editing.value = false; editingId.value = null;
-      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
+      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [...BUSINESS_ALL_CODES], password: '123456' });
       dialogVisible.value = true;
     }
     function openEdit(row) {
       editing.value = true; editingId.value = row._id;
-      const bt = Array.isArray(row.businessTypes) ? row.businessTypes : [];
+      // 未设置业务类型的存量用户，编辑时默认全选（空值即视为全部业务）
+      const bt = Array.isArray(row.businessTypes) && row.businessTypes.length ? row.businessTypes : [...BUSINESS_ALL_CODES];
       Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, businessTypes: bt });
       dialogVisible.value = true;
     }

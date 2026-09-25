@@ -9,21 +9,24 @@ export const BUSINESS_TYPES = [
 
 export const BUSINESS_OPTS = BUSINESS_TYPES.map((b) => ({ value: b.code, label: b.name }));
 
+/** 全部业务类型 code —— 新增/未设置用户默认全选 */
+export const BUSINESS_ALL_CODES = BUSINESS_TYPES.map((b) => b.code);
+
 /** 当前用户的业务类型信息数组（code→定义对象，过滤脏值） */
 export function businessInfos(user) {
   const codes = (user && Array.isArray(user.businessTypes)) ? user.businessTypes : [];
   return codes.map((c) => BUSINESS_TYPES.find((b) => b.code === c)).filter(Boolean);
 }
 
-/** 右上角徽章用：短名拼接，如「安全 / 设备」；未设置返回「未分配」 */
+/** 右上角徽章用：短名拼接，如「安全 / 设备」；未设置视为全部业务 */
 export function businessShortLabel(user) {
   const infos = businessInfos(user);
-  return infos.length ? infos.map((i) => i.short).join(' / ') : '未分配';
+  return infos.length ? infos.map((i) => i.short).join(' / ') : '全部业务';
 }
 
-/** 列表列用：全名拼接，如「安全业务 / 设备业务」；空数组返回「—」 */
+/** 列表列用：全名拼接，如「安全业务 / 设备业务」；空数组视为全部业务 */
 export function businessNames(row) {
   const codes = (row && Array.isArray(row.businessTypes)) ? row.businessTypes : [];
   const names = codes.map((c) => (BUSINESS_TYPES.find((b) => b.code === c) || {}).name || c);
-  return names.join(' / ') || '—';
+  return names.join(' / ') || '全部业务';
 }

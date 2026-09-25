@@ -1,7 +1,7 @@
 {
-  "version": "1.0.6",
-  "exeName": "GZInspection_v1.0.6.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.6.exe",
-  "notes": "权限修复：用户管理仅管理员可见/可用（菜单隐藏+路由拦截+页面守卫）；右上角徽章改为显示本人业务类型。",
+  "version": "1.0.7",
+  "exeName": "GZInspection_v1.0.7.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.7.exe",
+  "notes": "业务类型默认全选：新增/编辑用户默认勾选全部业务；未设置的用户显示为「全部业务」。",
   "publishedAt": "2026-09-26"
 }
