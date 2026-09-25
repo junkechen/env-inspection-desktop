@@ -1,7 +1,7 @@
 {
-  "version": "1.0.3",
-  "exeName": "GZInspection_v1.0.3.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.3.exe",
-  "notes": "用户管理：新增待审核筛选与审核通过操作，修复删除按钮被遮挡不可见的问题，状态筛选生效；登录：新增记住密码并自动登录。",
+  "version": "1.0.4",
+  "exeName": "GZInspection_v1.0.4.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.4.exe",
+  "notes": "用户管理：编辑/新增用户新增「科室」多选（环保/安全，支持一人多科室），列表新增科室列；修正操作列按钮完整显示。",
   "publishedAt": "2026-09-26"
 }

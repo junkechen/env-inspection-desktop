@@ -1,6 +1,9 @@
 import { api, ROLE_MAP } from '../api.js';
+import { DEPTS } from '../dept.js';
 
 const ROLE_OPTS = Object.entries(ROLE_MAP).map(([value, label]) => ({ value, label }));
+// 科室（业务域）下拉选项：value=科室编码，label=科室简称
+const DEPT_OPTS = DEPTS.map((d) => ({ value: d.code, label: d.short }));
 
 export default {
   template: `
@@ -30,6 +33,10 @@ export default {
           <template #default="{row}">{{ roleLabel(row.role) }}</template>
         </el-table-column>
         <el-table-column prop="department" label="部门" width="120" />
+        <!-- 科室：业务归属（环保/安全），可多归属；无字段时兜底显示环保 -->
+        <el-table-column label="科室" width="120">
+          <template #default="{row}">{{ deptLabels(row) }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{row}">
             <!-- pending = APP 端注册后等待管理员审核 -->
@@ -71,6 +78,11 @@ export default {
           </el-select>
         </el-form-item>
         <el-form-item label="部门"><el-input v-model="form.department" /></el-form-item>
+        <el-form-item label="科室">
+          <el-select v-model="form.deptCodes" multiple style="width:100%" placeholder="可多选">
+            <el-option v-for="d in DEPT_OPTS" :key="d.value" :label="d.label" :value="d.value" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="密码" v-if="!editing"><el-input v-model="form.password" placeholder="默认123456" /></el-form-item>
       </el-form>
       <template #footer>
@@ -95,9 +107,16 @@ export default {
     const editing = ref(false);
     const saving = ref(false);
     const editingId = ref(null);
-    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', password: '123456' });
+    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', deptCodes: ['JN'], password: '123456' });
 
     function roleLabel(r) { return (ROLE_OPTS.find((x) => x.value === r) || {}).label || r; }
+    // 行内科室显示：取该用户 deptCodes（缺省兜底环保），映射成「环保 / 安全」
+    function deptLabels(row) {
+      const codes = (row && (row.deptCodes || (row.deptCode ? [row.deptCode] : []))) || [];
+      const valid = codes.length ? codes : ['JN'];
+      const names = valid.map((c) => (DEPTS.find((d) => d.code === c) || {}).short || c);
+      return names.join(' / ');
+    }
 
     async function load() {
       loading.value = true;
@@ -114,12 +133,15 @@ export default {
 
     function openCreate() {
       editing.value = false; editingId.value = null;
-      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', password: '123456' });
+      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', deptCodes: ['JN'], password: '123456' });
       dialogVisible.value = true;
     }
     function openEdit(row) {
       editing.value = true; editingId.value = row._id;
-      Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department });
+      const codes = Array.isArray(row.deptCodes) && row.deptCodes.length
+        ? row.deptCodes
+        : (row.deptCode ? [row.deptCode] : ['JN']);
+      Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, deptCodes: codes });
       dialogVisible.value = true;
     }
     async function save() {
@@ -174,8 +196,8 @@ export default {
 
     load();
     return {
-      ROLE_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
-      roleLabel, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove,
+      ROLE_OPTS, DEPT_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
+      roleLabel, deptLabels, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove,
       Search, Refresh, Plus, Edit, Delete, Key
     };
   }
