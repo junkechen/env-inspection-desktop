@@ -7,7 +7,7 @@
 //   id 取 _id 或 id；照片在 photos / rectificationPhotos / rectificationHistory[].photos。
 
 const STATUS_NAME = { pending: '待处理', processing: '整改中', reviewing: '待验收', closed: '已关闭', deleted: '已删除' };
-const SEVERITY_NAME = { general: '一般', serious: '较重', critical: '严重' };
+const SEVERITY_NAME = { general: '一般', serious: '较大', critical: '重大' };
 
 function statusName(s) { return STATUS_NAME[s] || s || '—'; }
 function severityName(s) { return SEVERITY_NAME[s] || s || '一般'; }

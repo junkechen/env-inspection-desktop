@@ -3,9 +3,19 @@
 // dashboard / statistics 在“非管理员”角色下用过滤后的隐患数据调用本模块，
 // 管理员直接对全量调用（api.stats() 内部也复用本模块）。
 // 注意：不要 import api.js，避免 ESM 循环依赖（api.js 会 import 本模块）。
+import { BUSINESS_OF_CATEGORY } from './business.js';
+
 const CATEGORY_MAP = {
   wastewater: '废水排放', wastegas: '废气排放', solidWaste: '固废管理', noise: '噪音污染', other: '其他'
 };
+
+/** 隐患业务判定：优先 businessType 字段，旧数据靠中文类别反查业务，未匹配归环保 */
+export function businessOf(h) {
+  if (h && h.businessType) return h.businessType;
+  const cat = h && h.category;
+  if (cat && BUSINESS_OF_CATEGORY[cat]) return BUSINESS_OF_CATEGORY[cat];
+  return 'ENV';
+}
 
 export function computeStats(hazards) {
   const list = Array.isArray(hazards) ? hazards : [];
@@ -15,6 +25,7 @@ export function computeStats(hazards) {
   const byDepartmentDetail = {};
   const bySeverity = { general: 0, serious: 0, critical: 0 };
   const byCategory = {};
+  const byBusiness = { SAFE: 0, SAVING: 0, ENV: 0 };
   const byLocation = {};
   const now = Date.now();
   const oneDay = 86400000;
@@ -35,6 +46,10 @@ export function computeStats(hazards) {
 
     const cat = CATEGORY_MAP[h.category] || h.category || '其他';
     byCategory[cat] = (byCategory[cat] || 0) + 1;
+
+    const biz = businessOf(h);
+    if (byBusiness[biz] !== undefined) byBusiness[biz]++;
+    else byBusiness[biz] = (byBusiness[biz] || 0) + 1;
 
     const loc = h.location || '未填写位置';
     byLocation[loc] = (byLocation[loc] || 0) + 1;
@@ -93,13 +108,14 @@ export function computeStats(hazards) {
   if (Number(mom) > 50) alerts.push({ level: 'warning', text: `本周新增环比上周增长 ${mom}%，请关注激增原因。` });
   if (Number(mom) < -30) alerts.push({ level: 'info', text: `本周新增环比上周下降 ${Math.abs(mom)}%，整改成效显著。` });
   const criticalCount = bySeverity.critical;
-  if (criticalCount > 0) alerts.push({ level: 'danger', text: `发现 ${criticalCount} 条严重隐患，需立即处置。` });
+  if (criticalCount > 0) alerts.push({ level: 'danger', text: `发现 ${criticalCount} 条重大隐患，需立即处置。` });
 
   return {
     counts,
     byDepartment: Object.entries(byDepartment).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value),
     byDepartmentDetail: Object.values(byDepartmentDetail).sort((a, b) => b.total - a.total),
     bySeverity,
+    byBusiness,
     byCategory: Object.entries(byCategory).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value),
     repeatLocations,
     trend,

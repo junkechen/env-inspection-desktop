@@ -33,7 +33,7 @@ export default {
           <template #default="{row}">{{ roleLabel(row.role) }}</template>
         </el-table-column>
         <el-table-column prop="department" label="部门" width="120" />
-        <!-- 业务类型：用户负责的业务领域（安全/能源环保/现场/设备），可单选或多选 -->
+        <!-- 业务类型：用户负责的业务领域（安全/节能/环保），可单选或多选 -->
         <el-table-column label="业务类型" width="170">
           <template #default="{row}">{{ businessLabels(row) }}</template>
         </el-table-column>

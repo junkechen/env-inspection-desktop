@@ -11,7 +11,7 @@
 //       ES Module 在这种环上的初始化顺序不可靠。清缓存的动作交给调用方执行。
 
 export const DEPTS = [
-  { code: 'JN', name: '环保节能科', short: '环保', color: '#2e9e5b', icon: '🌿' },
+  { code: 'JN', name: '节能环保科', short: '节能环保', color: '#2e9e5b', icon: '🌿' },
   { code: 'AQ', name: '安全科', short: '安全', color: '#e8823c', icon: '⚠' }
 ];
 
@@ -70,36 +70,38 @@ export function deptInfo(code) {
 }
 
 // ============================================================
-// 按科室隔离的业务字典
+// 业务 → 科室 隔离字典（业务/类别唯一真源在 business.js）
 //
-// 关键：category 在库里存的就是中文本身（views/hazards.js 的 form.category），
-// 所以这里也用中文 —— 历史数据零改动即可兼容。
-// 下拉里显示哪些选项，由当前 deptCode 决定。
+// 隐患归属科室的判定顺序见 hazardDeptOf：
+//   1. 自身 deptCode（上报时已按业务写入）
+//   2. 自身 businessType → BUSINESS_TO_DEPT
+//   3. 自身 category（中文）→ BUSINESS_OF_CATEGORY 反查业务 → 再映射科室
+//   4. 兜底默认科室
+// 类别在库里存中文本身，故 BUSINESS_OF_CATEGORY 仍用中文匹配，历史数据零迁移。
 // ============================================================
-export const CATEGORY_BY_DEPT = {
-  JN: ['废水排放', '废气排放', '固废管理', '噪音污染', '其他'],
-  // 安全科类别为草稿，待安全科逐条确认后调整（方案文档 §5.10.2）
-  AQ: ['消防安全', '设备与电气安全', '危化品管理', '作业安全', '人员行为与防护', '安全标识与通道', '其他']
-};
+import { CATEGORY_BY_BUSINESS, BUSINESS_TO_DEPT, BUSINESS_OF_CATEGORY } from './business.js';
 
-export function categoryOptions(code) {
-  return CATEGORY_BY_DEPT[isValidDept(code) ? code : DEFAULT_DEPT] || CATEGORY_BY_DEPT[DEFAULT_DEPT];
+/** 类别下拉：指定业务返回该业务类别；不指定返回全部（合并三业务） */
+export function categoryOptions(businessCode) {
+  if (businessCode && CATEGORY_BY_BUSINESS[businessCode]) return CATEGORY_BY_BUSINESS[businessCode];
+  return Object.values(CATEGORY_BY_BUSINESS).flat();
 }
 
 /**
- * 隐患是否属于某个科室。
- * 用途：列表/导出前的兜底过滤 —— 服务端过滤未开启（ENFORCE_DEPT_FILTER=false）时，
- * 前端至少不能把另一科室的数据混进来。
+ * 隐患归属哪个科室。
+ * 用途：列表/导出前的兜底过滤 —— 服务端过滤未开启时，前端至少不能把另一科室的数据混进来。
  *
- * 判定顺序：业务归属 deptCode 优先；缺失时回退到"该 category 属于哪个科室"；
- * 再缺失则视为默认科室（历史数据回填前的过渡态）。
+ * 判定顺序：deptCode 优先 → businessType 映射 → 旧数据靠中文类别反查业务 → 兜底默认科室。
  */
 export function hazardDeptOf(h) {
   if (!h) return DEFAULT_DEPT;
   if (isValidDept(h.deptCode)) return h.deptCode;
-  for (const code of deptCodes()) {
-    if ((CATEGORY_BY_DEPT[code] || []).indexOf(h.category) !== -1 && code !== DEFAULT_DEPT) return code;
+  if (h.businessType && BUSINESS_TO_DEPT[h.businessType] && isValidDept(BUSINESS_TO_DEPT[h.businessType])) {
+    return BUSINESS_TO_DEPT[h.businessType];
   }
+  // 旧隐患无 businessType：靠中文类别反查业务 → 科室
+  const biz = BUSINESS_OF_CATEGORY[h.category];
+  if (biz && BUSINESS_TO_DEPT[biz] && isValidDept(BUSINESS_TO_DEPT[biz])) return BUSINESS_TO_DEPT[biz];
   return DEFAULT_DEPT;
 }
 

@@ -5,6 +5,7 @@ import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
 import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
 import { currentDept, categoryOptions } from '../dept.js';
+import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf, businessOf } from '../business.js';
 
 const STATUS_OPTS = [
   { value: 'pending', label: STATUS_MAP.pending },
@@ -38,12 +39,15 @@ export default {
   template: `
   <div>
     <h2 class="page-title neon-title">隐患管理</h2>
-    <p class="page-sub">环保隐患的上报、整改流转与催办 · 与移动端数据同源</p>
+    <p class="page-sub">安全 / 节能 / 环保隐患的上报、整改流转与催办 · 与移动端数据同源</p>
 
     <div class="toolbar">
       <el-input v-model="kw" placeholder="标题/描述/位置/部门/责任人" clearable style="width:240px" @keyup.enter="search" />
       <el-select v-model="filterStatus" placeholder="状态" clearable style="width:130px">
         <el-option v-for="o in STATUS_OPTS" :key="o.value" :label="o.label" :value="o.value" />
+      </el-select>
+      <el-select v-model="filterBusiness" placeholder="业务" clearable style="width:130px">
+        <el-option v-for="o in BUSINESS_OPTS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <el-select v-model="filterDept" placeholder="部门" clearable style="width:150px">
         <el-option v-for="d in depts" :key="d.name" :label="d.name" :value="d.name" />
@@ -70,6 +74,9 @@ export default {
           <template #default="{row}">{{ row.title || row.description?.slice(0,24) || '—' }}</template>
         </el-table-column>
         <el-table-column prop="category" label="类别" width="100" />
+        <el-table-column label="业务" width="90">
+          <template #default="{row}">{{ row.businessType ? businessLabelOf(row.businessType) : '环保' }}</template>
+        </el-table-column>
         <el-table-column prop="department" label="部门" width="120" />
         <el-table-column prop="assigneeName" label="责任人" width="100" />
         <el-table-column label="等级" width="80">
@@ -108,6 +115,7 @@ export default {
         <el-descriptions :column="2" border size="small">
           <el-descriptions-item label="编号" :span="2">{{ current.id || current._id }}</el-descriptions-item>
           <el-descriptions-item label="标题" :span="2">{{ current.title || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="业务">{{ current.businessType ? businessLabelOf(current.businessType) : '环保' }}</el-descriptions-item>
           <el-descriptions-item label="类别">{{ current.category }}</el-descriptions-item>
           <el-descriptions-item label="等级"><span :class="severityClass(current.severity)">{{ SEVERITY_MAP[current.severity] || '一般' }}</span></el-descriptions-item>
           <el-descriptions-item label="部门">{{ current.department }}</el-descriptions-item>
@@ -233,6 +241,12 @@ export default {
     <el-dialog v-model="createVisible" title="新增隐患" width="620px" :close-on-click-modal="false">
       <el-form :model="form" label-width="100px">
         <el-form-item label="标题" required><el-input v-model="form.title" placeholder="简短标题" /></el-form-item>
+        <el-form-item label="业务" required>
+          <el-select v-model="form.businessType" style="width:100%" @change="onBusinessChange" :disabled="singleBusiness">
+            <el-option v-for="o in BUSINESS_OPTS" :key="o.value" :label="o.label" :value="o.value" />
+          </el-select>
+          <div v-if="singleBusiness" style="color:var(--c-text-soft);font-size:12px;margin-top:4px">当前账号仅归属{{ businessLabelOf(form.businessType) }}，已自动采用</div>
+        </el-form-item>
         <el-form-item label="类别" required>
           <el-select v-model="form.category" style="width:100%"><el-option v-for="o in CATEGORY_OPTS" :key="o" :label="o" :value="o" /></el-select>
         </el-form-item>
@@ -281,6 +295,7 @@ export default {
     const loading = ref(false);
     const kw = ref('');
     const filterStatus = ref('');
+    const filterBusiness = ref('');
     const filterDept = ref('');
     const filterSeverity = ref('');
     const depts = ref([]);
@@ -302,7 +317,13 @@ export default {
     const uploading = ref(false);
     const exporting = ref(false);
     const overdueOnly = ref(false);
-    const form = reactive({ title: '', category: '其他', severity: 'general', department: '', location: '', assigneeId: '', assigneeName: '', dueDate: '', description: '', photos: [] });
+    const form = reactive({ title: '', businessType: 'SAFE', category: '其他', severity: 'general', department: '', location: '', assigneeId: '', assigneeName: '', dueDate: '', description: '', photos: [] });
+
+    // 当前账号仅归属单个业务时，上报自动采用该业务、隐藏业务选择框
+    const singleBusiness = computed(() => {
+      const bs = (store.user && Array.isArray(store.user.businessTypes)) ? store.user.businessTypes : [];
+      return bs.length === 1 ? bs[0] : '';
+    });
 
     // 返回按钮处理：有弹窗打开时优先关闭弹窗
     function closeTopDialog() {
@@ -332,6 +353,7 @@ export default {
           let all = filterIssuesByRole(user, r.list || []);
           if (overdueOnly.value) all = all.filter(isOverdue);
           if (filterStatus.value) all = all.filter(h => h.status === filterStatus.value);
+          if (filterBusiness.value) all = all.filter(h => (h.businessType || 'ENV') === filterBusiness.value);
           if (filterSeverity.value) all = all.filter(h => h.severity === filterSeverity.value);
           totalCount = all.length;
           const start = (page.value - 1) * size.value;
@@ -340,6 +362,7 @@ export default {
           const r = await api.hazards({ status: filterStatus.value, department: filterDept.value, category: '', keyword: kw.value, page: page.value, size: size.value });
           data = r.list;
           totalCount = r.total;
+          if (filterBusiness.value) data = data.filter(h => (h.businessType || 'ENV') === filterBusiness.value);
           if (filterSeverity.value) data = data.filter(h => h.severity === filterSeverity.value);
         }
         list.value = data; total.value = totalCount;
@@ -349,7 +372,7 @@ export default {
     // 「重置」是用户主动触发的动作，先失效缓存再取数，
     // 否则在 TTL 内点击会直接命中缓存、看起来像没生效。
     function reset() {
-      kw.value = ''; filterStatus.value = ''; filterDept.value = ''; filterSeverity.value = ''; overdueOnly.value = false;
+      kw.value = ''; filterStatus.value = ''; filterBusiness.value = ''; filterDept.value = ''; filterSeverity.value = ''; overdueOnly.value = false;
       api.refreshCache('hazards');
       search();
     }
@@ -494,8 +517,15 @@ export default {
     }
     function openCreate() {
       const me = store.user || {};
-      Object.assign(form, { title: '', category: '其他', severity: 'general', department: depts.value[0]?.name || '', location: '', assigneeId: '', assigneeName: '', dueDate: '', description: '', photos: [] });
+      const bs = (me.businessTypes && me.businessTypes.length) ? me.businessTypes : [];
+      const biz = singleBusiness.value || bs[0] || 'SAFE';
+      Object.assign(form, { title: '', businessType: biz, category: (categoryOptions(biz)[0] || '其他'), severity: 'general', department: depts.value[0]?.name || '', location: '', assigneeId: '', assigneeName: '', dueDate: '', description: '', photos: [] });
       createVisible.value = true;
+    }
+    // 切换业务 → 类别下拉级联重置为该项业务的首个类别
+    function onBusinessChange(biz) {
+      const opts = categoryOptions(biz);
+      form.category = (opts && opts.length) ? opts[0] : '其他';
     }
     function onAssigneeChange(id) {
       const u = rectifiers.value.find(x => x._id === id);
@@ -508,6 +538,8 @@ export default {
         const me = store.user || {};
         await api.createHazard({
           title: form.title,
+          businessType: form.businessType,
+          deptCode: BUSINESS_TO_DEPT[form.businessType] || 'JN',
           category: form.category,
           severity: form.severity,
           department: form.department,
@@ -609,17 +641,17 @@ export default {
       load();
     });
 
-    // 类别下拉随当前科室变化；切换科室后必须重取，否则会带着上一科室的选项
-    const categoryOpts = computed(() => categoryOptions(currentDept()));
+    // 类别下拉随所选业务级联；切换业务后自动重置为首选项
+    const categoryOpts = computed(() => categoryOptions(form.businessType));
 
     return {
-      STATUS_OPTS, SEVERITY_OPTS, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
-      kw, filterStatus, filterDept, filterSeverity, depts, rectifiers, me,
+      STATUS_OPTS, SEVERITY_OPTS, BUSINESS_OPTS, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
+      kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness,
       canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue,
       detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, saving, uploading, exporting, overdueOnly, form,
       search, reset, onPage, openDetail, startRectify, submitRectify, reviewIssue, onFeedbackUpload, onDetailFeedbackUpload, removeFeedbackPhoto, openFeedback, onCreateUpload, openRemind, sendRemind, openCreate, create,
       exportExcel, exportPdf,
-      onAssigneeChange, statusClass, severityClass, fmtDate,
+      onBusinessChange, onAssigneeChange, statusClass, severityClass, fmtDate, businessLabelOf,
       Search, Refresh, Plus, View, Bell, Download, Printer, ArrowLeft
     };
   }

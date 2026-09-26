@@ -86,7 +86,7 @@ export const CATEGORY_MAP = {
   wastewater: '废水排放', wastegas: '废气排放', solidWaste: '固废管理', noise: '噪音污染', other: '其他'
 };
 export const SEVERITY_MAP = {
-  general: '一般', serious: '较重', critical: '严重'
+  general: '一般', serious: '较大', critical: '重大'
 };
 
 function fmt(v) { return v == null ? '' : String(v); }
