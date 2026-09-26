@@ -3,7 +3,7 @@ import { store } from '../store.js';
 import { navigate } from '../router.js';
 import { isAdmin, filterMessagesByUser } from '../permission.js';
 import { computeStats, businessOf } from '../stats_utils.js';
-import { BUSINESS_OPTS, businessInfos, businessLabelOf } from '../business.js';
+import { BUSINESS_OPTS, businessLabelOf, businessesForDept } from '../business.js';
 import { resolveIssuePhotos, resolveHtmlImages } from '../image_utils.js';
 import { visibleAnnouncements, sanitizeHtml, matchTargetDept, CATEGORY_MAP as ANN_CATEGORY_MAP } from '../announcement.js';
 import { currentDept } from '../dept.js';
@@ -402,9 +402,11 @@ export default {
       comparison: {}, alerts: []
     });
     const messages = ref([]);
-    // 业务范围：默认取账号首个业务；仅归属单业务时整个仪表盘固定为该业务
-    const _bizInfos = businessInfos(store.user);
-    const bizList = ref(_bizInfos.length ? _bizInfos : BUSINESS_OPTS.map(o => ({ code: o.value, name: o.label })));
+    // 业务范围：先按当前科室取可见业务（科室隔离：SAFE=AQ，SAVING/ENV=JN），
+    // 再与账号 businessTypes 取交集。右上角切换科室会整页 reload，
+    // 每次挂载都按新科室重算，默认取第一个可见业务 —— 修复「切换科室后仪表盘仍显示原业务」
+    const _allowedBiz = businessesForDept(currentDept(), store.user);
+    const bizList = ref(_allowedBiz.length ? _allowedBiz : BUSINESS_OPTS.map(o => ({ code: o.value, name: o.label })));
     const filterBiz = ref(bizList.value[0] ? bizList.value[0].code : 'SAFE');
     let allHazards = [];
     function bizFiltered() { return allHazards.filter(h => businessOf(h) === filterBiz.value); }

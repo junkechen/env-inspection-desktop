@@ -76,3 +76,15 @@ export function businessLabelOf(code) {
   const b = BUSINESS_TYPES.find((x) => x.code === code);
   return b ? b.name : (code || '—');
 }
+
+/**
+ * 指定科室下可见的业务列表（科室隔离：SAFE→AQ，SAVING/ENV→JN）。
+ * user.businessTypes 存在时再与其取交集；交集为空（脏数据）回退为该科室全部业务。
+ * 用途：仪表盘/隐患页的业务筛选选项、默认业务 —— 保证右上角切换科室后各页同步。
+ */
+export function businessesForDept(deptCode, user) {
+  const deptBiz = BUSINESS_TYPES.filter((b) => BUSINESS_TO_DEPT[b.code] === deptCode);
+  const infos = businessInfos(user);
+  const allowed = infos.length ? deptBiz.filter((b) => infos.some((i) => i.code === b.code)) : deptBiz;
+  return allowed.length ? allowed : deptBiz;
+}

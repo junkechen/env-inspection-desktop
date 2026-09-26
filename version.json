@@ -1,7 +1,7 @@
 {
-  "version": "1.0.12",
-  "exeName": "GZInspection_v1.0.12.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.12.exe",
-  "notes": "仪表盘体验优化：1) 车间问题数量排名支持点击行查看该车间/部门的问题清单与详情；2) 单业务账号默认显示本业务隐患并隐藏业务选择框，仅多业务账号显示切换；3) 公告栏默认折叠，点击标题展开。",
+  "version": "1.0.13",
+  "exeName": "GZInspection_v1.0.13.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.13.exe",
+  "notes": "修复：右上角切换科室后，仪表盘/隐患管理的业务范围未跟随切换（仍显示原业务隐患）。现在业务范围按当前科室自动限定：节能环保科显示节能/环保业务，安全科显示安全业务；新增隐患的默认业务也跟随当前科室。",
   "publishedAt": "2026-09-26"
 }

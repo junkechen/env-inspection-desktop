@@ -5,7 +5,7 @@ import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
 import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
 import { currentDept, categoryOptions } from '../dept.js';
-import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf, businessInfos } from '../business.js';
+import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf, businessesForDept } from '../business.js';
 import { businessOf } from '../stats_utils.js';
 
 const STATUS_OPTS = [
@@ -326,15 +326,14 @@ export default {
       return bs.length === 1 ? bs[0] : '';
     });
 
-    // 工具栏“业务”筛选下拉：仅列出当前账号可见的业务；
-    // 未设置业务（管理员）则列出全部。单业务时长度=1，模板中 v-if 隐藏该选择框。
+    // 工具栏“业务”筛选下拉：按当前科室取可见业务（科室隔离），再与账号 businessTypes 取交集。
+    // 单业务时长度=1，模板中 v-if 隐藏该选择框。切换科室整页 reload 后按新科室重算。
     const bizFilterOpts = computed(() => {
-      const infos = businessInfos(store.user);
-      return infos.length ? infos.map(i => ({ value: i.code, label: i.name })) : BUSINESS_OPTS;
+      return businessesForDept(currentDept(), store.user).map(i => ({ value: i.code, label: i.name }));
     });
 
-    // 单业务账号：默认只显示该业务隐患，用户无需再选
-    if (singleBusiness.value) filterBusiness.value = singleBusiness.value;
+    // 单业务账号自动采用；多业务默认取当前科室下第一个可见业务（与仪表盘一致）
+    filterBusiness.value = singleBusiness.value || (bizFilterOpts.value[0] ? bizFilterOpts.value[0].value : '');
 
     // 返回按钮处理：有弹窗打开时优先关闭弹窗
     function closeTopDialog() {
@@ -528,8 +527,9 @@ export default {
     }
     function openCreate() {
       const me = store.user || {};
-      const bs = (me.businessTypes && me.businessTypes.length) ? me.businessTypes : [];
-      const biz = singleBusiness.value || bs[0] || 'SAFE';
+      // 默认业务跟随当前科室（科室隔离），避免节能环保科下默认新增出安全业务隐患
+      const deptBiz = businessesForDept(currentDept(), me);
+      const biz = singleBusiness.value || (deptBiz[0] ? deptBiz[0].code : 'SAFE');
       Object.assign(form, { title: '', businessType: biz, category: (categoryOptions(biz)[0] || '其他'), severity: 'general', department: depts.value[0]?.name || '', location: '', assigneeId: '', assigneeName: '', dueDate: '', description: '', photos: [] });
       createVisible.value = true;
     }
