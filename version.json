@@ -1,7 +1,7 @@
 {
-  "version": "1.0.9",
-  "exeName": "GZInspection_v1.0.9.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.9.exe",
-  "notes": "修复启动加载卡死问题（模块导入错误）。",
+  "version": "1.0.10",
+  "exeName": "GZInspection_v1.0.10.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.10.exe",
+  "notes": "仪表盘按业务分类显示：默认展示账号业务的数据统计，归属多个业务时可切换；修复启动加载卡死。",
   "publishedAt": "2026-09-26"
 }

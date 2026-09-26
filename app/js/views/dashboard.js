@@ -2,7 +2,8 @@ import { api, STATUS_MAP, SEVERITY_MAP, CATEGORY_MAP } from '../api.js';
 import { store } from '../store.js';
 import { navigate } from '../router.js';
 import { isAdmin, filterIssuesByRole, filterMessagesByUser } from '../permission.js';
-import { computeStats } from '../stats_utils.js';
+import { computeStats, businessOf } from '../stats_utils.js';
+import { BUSINESS_OPTS, businessInfos, businessLabelOf } from '../business.js';
 import { resolveIssuePhotos, resolveHtmlImages } from '../image_utils.js';
 import { visibleAnnouncements, sanitizeHtml, matchTargetDept, CATEGORY_MAP as ANN_CATEGORY_MAP } from '../announcement.js';
 import { currentDept } from '../dept.js';
@@ -86,6 +87,15 @@ export default {
           <span class="ann-board-time">{{ fmtDate(a.publishedAt || a.createdAt) }}</span>
         </div>
       </div>
+    </div>
+
+    <!-- 业务切换（归属多个业务的账号显示；单业务自动采用不显示） -->
+    <div v-if="bizList.length > 1" class="card section" style="display:flex;align-items:center;gap:14px;padding:10px 16px;margin-bottom:16px">
+      <span style="color:var(--c-text-soft);font-size:13px">业务范围</span>
+      <el-radio-group v-model="filterBiz" size="small" @change="applyBiz">
+        <el-radio-button v-for="b in bizList" :key="b.code" :label="b.code">{{ b.name }}</el-radio-button>
+      </el-radio-group>
+      <span style="color:var(--c-text-soft);font-size:12px">当前：{{ businessLabelOf(filterBiz) }}</span>
     </div>
 
     <!-- 顶部 6 张数据卡片 -->
@@ -390,6 +400,16 @@ export default {
       comparison: {}, alerts: []
     });
     const messages = ref([]);
+    // 业务范围：默认取账号首个业务；仅归属单业务时整个仪表盘固定为该业务
+    const _bizInfos = businessInfos(store.user);
+    const bizList = ref(_bizInfos.length ? _bizInfos : BUSINESS_OPTS.map(o => ({ code: o.value, name: o.label })));
+    const filterBiz = ref(bizList.value[0] ? bizList.value[0].code : 'SAFE');
+    let allHazards = [];
+    function bizFiltered() { return allHazards.filter(h => businessOf(h) === filterBiz.value); }
+    function applyBiz() {
+      Object.assign(s, computeStats(bizFiltered()));
+      render();
+    }
     const chartEl = ref(null);
     const pieEl = ref(null);
     const trendEl = ref(null);
@@ -449,19 +469,19 @@ export default {
       try {
         nowText.value = new Date().toLocaleString('zh-CN', { hour12: false });
         const user = store.user;
-        let res;
-        if (isAdmin(user)) {
-          res = await api.stats();
-        } else {
-          const hr = await api.hazards({ page: 1, size: 0 });
-          res = computeStats(filterIssuesByRole(user, hr.list || []));
-        }
+        // 全量列表一次取回，按当前业务过滤后再聚合（管理员与普通用户同路径，
+        // 便于业务切换时无需重新请求）
+        const hr = await api.hazards({ page: 1, size: 0 });
+        allHazards = filterIssuesByRole(user, hr.list || []);
+        const res = computeStats(bizFiltered());
         Object.assign(s, res);
         store.unread = res.unreadMessages || 0;
         const m = await api.messages({});
         const visible = filterMessagesByUser(user, m.list || []);
         messages.value = visible.slice(0, 6);
-        if (!isAdmin(user)) store.unread = visible.filter(x => x.isRead !== true).length;
+        // 未读：管理员沿用 api.stats 的口径（全部消息未读数）；普通用户按可见消息
+        if (isAdmin(user)) store.unread = (m.list || []).filter(x => x.isRead === false).length;
+        else store.unread = visible.filter(x => x.isRead !== true).length;
         await loadAnnouncements(user);
         // 取缓存中数据的真实取数时刻，而不是本次渲染时刻：
         // 冷启动会先渲染磁盘上的旧数据，若显示渲染时刻会把陈旧数据说成"刚更新"
@@ -688,6 +708,8 @@ export default {
     });
     return {
       s, cards: CARD_CFG, messages,
+      // 业务切换
+      bizList, filterBiz, applyBiz, businessLabelOf,
       // 公告栏
       announcements, annRead, annVisible, annDetail, annHtml, openAnnouncement, ANN_CATEGORY_MAP,
       trendEl, severityEl, barEl, pieEl, categoryEl,
