@@ -5,7 +5,8 @@ import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
 import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
 import { currentDept, categoryOptions } from '../dept.js';
-import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf, businessOf } from '../business.js';
+import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf } from '../business.js';
+import { businessOf } from '../stats_utils.js';
 
 const STATUS_OPTS = [
   { value: 'pending', label: STATUS_MAP.pending },

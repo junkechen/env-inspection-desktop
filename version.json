@@ -1,7 +1,7 @@
 {
-  "version": "1.0.8",
-  "exeName": "GZInspection_v1.0.8.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.8.exe",
-  "notes": "业务类别体系改造：业务类型改为安全/节能/环保（取消现场与设备）；隐患等级统一一般/较大/重大；上报先选业务联动类别并自动归科室；用户管理业务类型改三项默认全选；大屏与统计同步。",
+  "version": "1.0.9",
+  "exeName": "GZInspection_v1.0.9.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.9.exe",
+  "notes": "修复启动加载卡死问题（模块导入错误）。",
   "publishedAt": "2026-09-26"
 }
