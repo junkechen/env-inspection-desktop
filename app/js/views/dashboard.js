@@ -470,9 +470,11 @@ export default {
         nowText.value = new Date().toLocaleString('zh-CN', { hour12: false });
         const user = store.user;
         // 全量列表一次取回，按当前业务过滤后再聚合（管理员与普通用户同路径，
-        // 便于业务切换时无需重新请求）
+        // 便于业务切换时无需重新请求）。
+        // 统计口径与手机端统计页对齐：只按业务过滤，不做「上报人/整改人」角色过滤
+        // （业务→科室映射已保证数据隔离：SAFE=AQ，SAVING/ENV=JN）。
         const hr = await api.hazards({ page: 1, size: 0 });
-        allHazards = filterIssuesByRole(user, hr.list || []);
+        allHazards = hr.list || [];
         const res = computeStats(bizFiltered());
         Object.assign(s, res);
         store.unread = res.unreadMessages || 0;

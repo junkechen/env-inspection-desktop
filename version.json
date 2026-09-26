@@ -1,7 +1,7 @@
 {
-  "version": "1.0.10",
-  "exeName": "GZInspection_v1.0.10.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.10.exe",
-  "notes": "仪表盘按业务分类显示：默认展示账号业务的数据统计，归属多个业务时可切换；修复启动加载卡死。",
+  "version": "1.0.11",
+  "exeName": "GZInspection_v1.0.11.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.11.exe",
+  "notes": "修复仪表盘统计口径：与手机端对齐，按业务统计全部隐患（原仅统计与自己相关的，导致单业务账号看到0条）。",
   "publishedAt": "2026-09-26"
 }
