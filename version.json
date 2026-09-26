@@ -1,7 +1,7 @@
 {
-  "version": "1.0.11",
-  "exeName": "GZInspection_v1.0.11.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.11.exe",
-  "notes": "修复仪表盘统计口径：与手机端对齐，按业务统计全部隐患（原仅统计与自己相关的，导致单业务账号看到0条）。",
+  "version": "1.0.12",
+  "exeName": "GZInspection_v1.0.12.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.12.exe",
+  "notes": "仪表盘体验优化：1) 车间问题数量排名支持点击行查看该车间/部门的问题清单与详情；2) 单业务账号默认显示本业务隐患并隐藏业务选择框，仅多业务账号显示切换；3) 公告栏默认折叠，点击标题展开。",
   "publishedAt": "2026-09-26"
 }

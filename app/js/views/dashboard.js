@@ -1,7 +1,7 @@
 import { api, STATUS_MAP, SEVERITY_MAP, CATEGORY_MAP } from '../api.js';
 import { store } from '../store.js';
 import { navigate } from '../router.js';
-import { isAdmin, filterIssuesByRole, filterMessagesByUser } from '../permission.js';
+import { isAdmin, filterMessagesByUser } from '../permission.js';
 import { computeStats, businessOf } from '../stats_utils.js';
 import { BUSINESS_OPTS, businessInfos, businessLabelOf } from '../business.js';
 import { resolveIssuePhotos, resolveHtmlImages } from '../image_utils.js';
@@ -69,12 +69,13 @@ export default {
       </div>
     </div>
 
-    <!-- 公告栏（置顶优先；普通用户只见已发布且未过期） -->
+    <!-- 公告栏（默认收起，点击标题展开；置顶优先，普通用户只见已发布且未过期） -->
     <div class="card section" style="border-top:2px solid var(--c-accent);margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h3 style="margin:0">📢 公告栏</h3>
+        <h3 style="margin:0;cursor:pointer;user-select:none" @click="annExpanded = !annExpanded">📢 公告栏 <span style="font-size:12px;color:var(--c-text-soft)">{{ annExpanded ? '（点击收起）' : '（共 ' + announcements.length + ' 条，点击展开）' }}</span></h3>
         <el-button text type="primary" @click="navigate('/announcements')">查看全部</el-button>
       </div>
+      <template v-if="annExpanded">
       <div v-if="!announcements.length" style="color:var(--c-text-soft);text-align:center;padding:18px 0">
         暂无公告
       </div>
@@ -87,6 +88,7 @@ export default {
           <span class="ann-board-time">{{ fmtDate(a.publishedAt || a.createdAt) }}</span>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- 业务切换（归属多个业务的账号显示；单业务自动采用不显示） -->
@@ -449,6 +451,7 @@ export default {
     const issueDetail = ref(null);
     // 公告栏
     const announcements = ref([]);
+    const annExpanded = ref(false); // 默认收起，点击标题展开
     const annRead = ref({});
     const annVisible = ref(false);
     const annDetail = ref(null);
@@ -499,18 +502,13 @@ export default {
       }
     }
 
-    async function loadDeptIssues() {
+    function loadDeptIssues() {
       if (!deptData.value) return;
-      deptLoading.value = true;
-      try {
-        const r = await api.hazards({ department: deptData.value.name, status: deptStatus.value, page: 1, size: 0 });
-        deptIssues.value = filterIssuesByRole(store.user, r.list || []);
-      } catch (e) {
-        ElMessage.error('加载问题清单失败：' + e.message);
-        deptIssues.value = [];
-      } finally {
-        deptLoading.value = false;
-      }
+      // 与仪表盘统计同口径：当前业务范围内按车间过滤（业务→科室已保证隔离），
+      // 不做「上报人/整改人」角色过滤，否则巡查员点开车间只会看到"暂无问题"
+      let all = bizFiltered().filter(h => (h.department || '') === deptData.value.name);
+      if (deptStatus.value) all = all.filter(h => h.status === deptStatus.value);
+      deptIssues.value = all;
     }
 
     // 首页公告：只取前 5 条作预览。
@@ -713,7 +711,7 @@ export default {
       // 业务切换
       bizList, filterBiz, applyBiz, businessLabelOf,
       // 公告栏
-      announcements, annRead, annVisible, annDetail, annHtml, openAnnouncement, ANN_CATEGORY_MAP,
+      announcements, annExpanded, annRead, annVisible, annDetail, annHtml, openAnnouncement, ANN_CATEGORY_MAP,
       trendEl, severityEl, barEl, pieEl, categoryEl,
       // 弹窗状态
       deptVisible, deptData, deptTitle, deptIssues, deptStatus, deptLoading,

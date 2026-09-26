@@ -5,7 +5,7 @@ import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
 import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
 import { currentDept, categoryOptions } from '../dept.js';
-import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf } from '../business.js';
+import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf, businessInfos } from '../business.js';
 import { businessOf } from '../stats_utils.js';
 
 const STATUS_OPTS = [
@@ -47,8 +47,8 @@ export default {
       <el-select v-model="filterStatus" placeholder="状态" clearable style="width:130px">
         <el-option v-for="o in STATUS_OPTS" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
-      <el-select v-model="filterBusiness" placeholder="业务" clearable style="width:130px">
-        <el-option v-for="o in BUSINESS_OPTS" :key="o.value" :label="o.label" :value="o.value" />
+      <el-select v-if="bizFilterOpts.length > 1" v-model="filterBusiness" placeholder="业务" clearable style="width:130px">
+        <el-option v-for="o in bizFilterOpts" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <el-select v-model="filterDept" placeholder="部门" clearable style="width:150px">
         <el-option v-for="d in depts" :key="d.name" :label="d.name" :value="d.name" />
@@ -325,6 +325,16 @@ export default {
       const bs = (store.user && Array.isArray(store.user.businessTypes)) ? store.user.businessTypes : [];
       return bs.length === 1 ? bs[0] : '';
     });
+
+    // 工具栏“业务”筛选下拉：仅列出当前账号可见的业务；
+    // 未设置业务（管理员）则列出全部。单业务时长度=1，模板中 v-if 隐藏该选择框。
+    const bizFilterOpts = computed(() => {
+      const infos = businessInfos(store.user);
+      return infos.length ? infos.map(i => ({ value: i.code, label: i.name })) : BUSINESS_OPTS;
+    });
+
+    // 单业务账号：默认只显示该业务隐患，用户无需再选
+    if (singleBusiness.value) filterBusiness.value = singleBusiness.value;
 
     // 返回按钮处理：有弹窗打开时优先关闭弹窗
     function closeTopDialog() {
@@ -647,7 +657,7 @@ export default {
 
     return {
       STATUS_OPTS, SEVERITY_OPTS, BUSINESS_OPTS, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
-      kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness,
+      kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness, bizFilterOpts,
       canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue,
       detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, saving, uploading, exporting, overdueOnly, form,
       search, reset, onPage, openDetail, startRectify, submitRectify, reviewIssue, onFeedbackUpload, onDetailFeedbackUpload, removeFeedbackPhoto, openFeedback, onCreateUpload, openRemind, sendRemind, openCreate, create,
