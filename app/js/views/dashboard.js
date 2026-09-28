@@ -200,20 +200,9 @@ export default {
 
     <!-- 问题类型 + 重复问题 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
-      <div class="card" style="border-top:2px solid #f472b6;display:flex;flex-direction:column">
+      <div class="card" style="border-top:2px solid #f472b6">
         <h3 style="margin:0 0 12px">问题类型分布</h3>
-        <div v-if="!s.byCategory || !s.byCategory.length" style="color:var(--c-text-soft);text-align:center;padding:60px 0">暂无数据</div>
-        <template v-else>
-          <div ref="categoryEl" style="flex:1;min-height:240px"></div>
-          <div style="display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--c-border)">
-            <div v-for="(c,i) in s.byCategory" :key="c.name" style="display:flex;align-items:center;gap:10px;font-size:13px">
-              <span :style="{ width:'10px', height:'10px', borderRadius:'3px', background: DEPT_COLORS[i % DEPT_COLORS.length], flexShrink:0 }"></span>
-              <span style="color:#e5e7eb;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.name }}</span>
-              <span style="color:#fff;font-weight:600">{{ c.value }}</span>
-              <span style="color:var(--c-text-soft);width:52px;text-align:right">{{ catPercent(i) }}%</span>
-            </div>
-          </div>
-        </template>
+        <div ref="categoryEl" style="height:280px"></div>
       </div>
       <div class="card" style="border-top:2px solid #fb923c">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -615,14 +604,6 @@ export default {
       navigate('/hazards');
     }
 
-    // 问题类型占比（按 byCategory 合计，避免类别合计 ≠ 总数时失真）
-    function catPercent(i) {
-      const list = s.byCategory || [];
-      const total = list.reduce((a, c) => a + (c.value || 0), 0);
-      if (!total) return 0;
-      return Math.round((list[i].value || 0) / total * 100);
-    }
-
     // 防抖渲染：连续多次刷新（业务切换 / 后台 SWR 合并）只重绘一次；
     // 同时把 5 个 ECharts 的初始化延后到下一帧之后，避免阻塞首屏渲染。
     let renderTimer = null;
@@ -706,15 +687,16 @@ export default {
         }]
       }, false);
 
-      // 问题类型（图例用卡片底部的自定义列表，图内不放 label/legend）
+      // 问题类型（外部引导标签 + 底部图例，保持原版样式）
       if (category) category.setOption({
         backgroundColor: 'transparent',
         tooltip: { trigger: 'item', backgroundColor: 'rgba(11,18,32,.95)', borderColor: 'var(--c-border)', textStyle: { color: '#fff' }, formatter: '{b}：{c} 项（{d}%）' },
+        legend: { bottom: 0, icon: 'roundRect', itemWidth: 14, itemHeight: 10, textStyle: { color: '#e5e7eb' } },
         series: [{
-          type: 'pie', radius: ['42%', '68%'], center: ['50%', '50%'],
+          type: 'pie', radius: ['40%', '68%'], center: ['50%', '44%'],
           itemStyle: { borderRadius: 6, borderColor: 'var(--c-bg)', borderWidth: 2 },
-          label: { show: false },
-          labelLine: { show: false },
+          label: { color: '#fff', formatter: '{b}' },
+          labelLine: { lineStyle: { color: '#9ca3af' } },
           data: (s.byCategory || []).map((c, i) => ({ name: c.name, value: c.value, itemStyle: { color: DEPT_COLORS[i % DEPT_COLORS.length] } }))
         }]
       }, false);
@@ -760,7 +742,7 @@ export default {
       issueVisible, issueDetail,
       // 工具
       DEPT_COLORS, STATUS_COLORS, STATUS_MAP, SEVERITY_MAP,
-      navigate, goToHazards, loadDeptIssues, openDept, openIssueDetail, openMsg, catPercent,
+      navigate, goToHazards, loadDeptIssues, openDept, openIssueDetail, openMsg,
       titleOf, isRead, fmtArrow, statusClass, severityClass, fmtDate,
       View, ArrowLeft, nowText, dataUpdatedAt, checking, manualCheck
     };

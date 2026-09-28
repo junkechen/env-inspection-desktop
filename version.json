@@ -1,7 +1,7 @@
 {
-  "version": "1.0.16",
-  "exeName": "GZInspection_v1.0.16.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.16.exe",
-  "notes": "运行流畅度优化：1）仪表盘隐患/消息/公告三路数据并行请求，首屏与刷新耗时降至原来的约 1/3；2）仅在进入首页时强制与云端同步消息已读，后台自动刷新不再阻塞式重拉；3）5 个图表改为合并更新并对渲染做防抖，切业务/刷新不再整图重建卡顿；4）图表初始化延后到首帧之后，打开页面首屏更顺滑；5）隐患列表新增每页条数选择（10/20/50/100）；6）公告/消息正文图片改为懒加载，长图文打开不再瞬时卡顿。",
+  "version": "1.0.17",
+  "exeName": "GZInspection_v1.0.17.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.17.exe",
+  "notes": "问题类型分布图恢复原版样式：环形图带外部类别引导标签，底部彩色图例，悬停显示类别数量与占比。",
   "publishedAt": "2026-09-28"
 }
