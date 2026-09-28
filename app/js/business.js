@@ -79,12 +79,16 @@ export function businessLabelOf(code) {
 
 /**
  * 指定科室下可见的业务列表（科室隔离：SAFE→AQ，SAVING/ENV→JN）。
- * user.businessTypes 存在时再与其取交集；交集为空（脏数据）回退为该科室全部业务。
- * 用途：仪表盘/隐患页的业务筛选选项、默认业务 —— 保证右上角切换科室后各页同步。
+ *
+ * 权限优先级（修复「多业务用户被科室限死、无法切换」）：
+ *   1. 账号已设置业务权限（businessTypes 非空）→ 直接以账号权限为准，
+ *      不被所在科室限制，可在全部授权业务间切换（与手机端一致）。
+ *   2. 账号未设置业务（如 admin）→ 按当前科室派生可见业务，
+ *      保证右上角切换科室后仪表盘/隐患页联动。
  */
 export function businessesForDept(deptCode, user) {
-  const deptBiz = BUSINESS_TYPES.filter((b) => BUSINESS_TO_DEPT[b.code] === deptCode);
   const infos = businessInfos(user);
-  const allowed = infos.length ? deptBiz.filter((b) => infos.some((i) => i.code === b.code)) : deptBiz;
-  return allowed.length ? allowed : deptBiz;
+  if (infos.length) return infos;
+  const deptBiz = BUSINESS_TYPES.filter((b) => BUSINESS_TO_DEPT[b.code] === deptCode);
+  return deptBiz.length ? deptBiz : BUSINESS_TYPES;
 }

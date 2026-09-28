@@ -1,7 +1,7 @@
 {
-  "version": "1.0.13",
-  "exeName": "GZInspection_v1.0.13.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.13.exe",
-  "notes": "修复：右上角切换科室后，仪表盘/隐患管理的业务范围未跟随切换（仍显示原业务隐患）。现在业务范围按当前科室自动限定：节能环保科显示节能/环保业务，安全科显示安全业务；新增隐患的默认业务也跟随当前科室。",
-  "publishedAt": "2026-09-26"
+  "version": "1.0.14",
+  "exeName": "GZInspection_v1.0.14.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.14.exe",
+  "notes": "修复两项：1）多业务权限用户（如安全/节能/环保）桌面端被所在科室限死、只能看一项且无法切换业务——现改为以账号业务权限为准，可像 admin 一样切换全部授权业务；2）消息催办/公告在手机端已读后，电脑端仍显示未读——现桌面端每次打开消息、公告、仪表盘页面均强制与云端已读状态同步。",
+  "publishedAt": "2026-09-28"
 }

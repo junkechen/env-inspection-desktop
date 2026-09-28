@@ -473,6 +473,9 @@ export default {
     async function load() {
       try {
         nowText.value = new Date().toLocaleString('zh-CN', { hour12: false });
+        // 落地页强制与云端同步消息/公告已读状态：手机端已读后回到电脑端立即跟随
+        api.refreshCache('message');
+        api.refreshCache('announcement');
         const user = store.user;
         // 全量列表一次取回，按当前业务过滤后再聚合（管理员与普通用户同路径，
         // 便于业务切换时无需重新请求）。

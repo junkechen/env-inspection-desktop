@@ -333,6 +333,8 @@ export default {
     async function load() {
       loading.value = true;
       try {
+        // 每次打开强制与云端同步：手机端已读后，电脑端切到本页立即跟随，不再命中本地缓存
+        api.refreshCache('announcement');
         const r = await api.announcements({
           keyword: keyword.value, category: category.value, status: status.value, includeExpired: true
         });

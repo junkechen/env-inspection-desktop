@@ -139,6 +139,8 @@ export default {
     async function load() {
       loading.value = true;
       try {
+        // 每次打开强制与云端同步：手机端已读后，电脑端切到本页立即跟随，不再命中 60s 本地缓存
+        api.refreshCache('message');
         // 不携带 read 参数：一次取回全部，前端做筛选/分页，减少重复拉取
         let r = await api.messages({ page: 1, size: 0 });
         // 兜底：列表为空但云端有未读数，说明大概率命中了过期/空的本地缓存，
