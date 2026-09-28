@@ -391,7 +391,7 @@ export default {
     </el-dialog>
   </div>`,
   setup() {
-    const { ref, reactive, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
+    const { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
     const { ElMessage } = ElementPlus;
     const { View, ArrowLeft } = ElementPlusIconsVue;
 
