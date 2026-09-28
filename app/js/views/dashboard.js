@@ -405,9 +405,20 @@ export default {
     // 业务范围：先按当前科室取可见业务（科室隔离：SAFE=AQ，SAVING/ENV=JN），
     // 再与账号 businessTypes 取交集。右上角切换科室会整页 reload，
     // 每次挂载都按新科室重算，默认取第一个可见业务 —— 修复「切换科室后仪表盘仍显示原业务」
-    const _allowedBiz = businessesForDept(currentDept(), store.user);
-    const bizList = ref(_allowedBiz.length ? _allowedBiz : BUSINESS_OPTS.map(o => ({ code: o.value, name: o.label })));
+    // 业务范围：随「当前科室」与「登录用户的业务权限」响应式变化。
+    // 此前是 setup 时一次性初始化的普通 ref，导致管理员在后台调整某账号业务权限后，
+    // 必须重新登录才能看到新业务。改为 computed，并监听 store.user 变化自动重算。
+    const bizList = computed(() => {
+      const bs = businessesForDept(currentDept(), store.user);
+      return bs.length ? bs : BUSINESS_OPTS.map(o => ({ code: o.value, name: o.label }));
+    });
     const filterBiz = ref(bizList.value[0] ? bizList.value[0].code : 'SAFE');
+    // 账号业务权限或科室变化时，业务范围随之变化：保证当前选中项仍在范围内，并重算统计
+    watch([bizList, () => store.user], () => {
+      const codes = bizList.value.map(b => b.code);
+      if (!codes.includes(filterBiz.value)) filterBiz.value = codes[0] || 'SAFE';
+      applyBiz();
+    });
     let allHazards = [];
     function bizFiltered() { return allHazards.filter(h => businessOf(h) === filterBiz.value); }
     function applyBiz() {

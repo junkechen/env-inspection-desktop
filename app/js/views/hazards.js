@@ -334,6 +334,13 @@ export default {
 
     // 单业务账号自动采用；多业务默认取当前科室下第一个可见业务（与仪表盘一致）
     filterBusiness.value = singleBusiness.value || (bizFilterOpts.value[0] ? bizFilterOpts.value[0].value : '');
+    // 管理员在后台调整业务权限后即时生效：store.user 变化（refreshMe 写回）时，
+    // 重新收敛 filterBusiness，避免出现下拉里没有、筛选却命中的脏状态
+    watch(() => store.user, () => {
+      const opts = bizFilterOpts.value.map(o => o.value);
+      if (singleBusiness.value) filterBusiness.value = singleBusiness.value;
+      else if (!opts.includes(filterBusiness.value)) filterBusiness.value = opts[0] || '';
+    });
 
     // 返回按钮处理：有弹窗打开时优先关闭弹窗
     function closeTopDialog() {

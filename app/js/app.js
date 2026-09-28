@@ -174,6 +174,8 @@ const App = {
         // 后台预热各集合：之后进入仪表盘/列表页可直接命中本地缓存，无需等待网络。
         // 不 await、失败静默，绝不阻塞首屏。
         api.warmCache();
+        // 登录后先同步一次最新权限（业务类型/科室/角色），避免沿用登录时刻的旧快照
+        syncCurrentUser();
         try {
           const r = await api.messages({ read: 'false' });
           store.unread = r.unread;
@@ -183,6 +185,20 @@ const App = {
         navigate('/login');
       }
     });
+
+    // 后台调整当前账号权限（业务类型等）后，无需重新登录即可生效：
+    // 进入应用、窗口获得焦点、以及每 60 秒，从云端重新拉取当前用户资料并写回 store.user。
+    // 仪表盘/隐患页的业务范围均为响应式，会自动跟随重算。
+    let userSyncTimer = null;
+    async function syncCurrentUser() {
+      if (!store.user) return;
+      try { await api.refreshMe(); console.log('[app] 已同步当前用户最新权限'); }
+      catch (e) { console.warn('[app] 同步当前用户失败:', e && e.message); }
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', () => syncCurrentUser());
+      userSyncTimer = setInterval(() => syncCurrentUser(), 60 * 1000);
+    }
 
     // 登录成功（store.user 由 null 变为用户）时同样预热，
     // 否则本次会话第一个页面仍要等网络。

@@ -8,6 +8,7 @@
 // 生产环境请在云函数侧加鉴权，并在网关开启 CORS（Access-Control-Allow-Origin）。
 import { computeStats } from './stats_utils.js';
 import { cached, invalidate, warm } from './cache.js';
+import { setUser } from './store.js';
 import {
   DOC_TYPE, STATUS, normalize, sortAnnouncements, filterAnnouncements,
   collectExpiredForArchive, readStats
@@ -190,6 +191,29 @@ export const api = {
     return { token: 'cb_' + Date.now(), user: r.user };
   },
   me: () => getStoredUser(),
+
+  // 从云端重新拉取「当前登录用户」的最新资料（业务权限 businessTypes、科室、角色等），
+  // 并即时写回 store.user 与本地持久化。管理员在后台调整某账号权限后，
+  // 该账号无需重新登录即可拿到新增业务。
+  refreshMe: async () => {
+    const cur = getStoredUser();
+    if (!cur) return null;
+    // 先强制失效 users 缓存，确保拿到后台最新权限（updateUser 已 invalidate，但跨端/同机其他会话改动需主动刷）
+    try { await api.refreshCache('users'); } catch (e) { /* 忽略 */ }
+    let list;
+    try { list = await queryCollection('users'); } catch (e) { return null; }
+    const found = (list || []).find(u =>
+      (cur._id && String(u._id) === String(cur._id)) ||
+      (cur.id && String(u.id) === String(cur.id)) ||
+      (cur.username && u.username === cur.username) ||
+      (cur.name && u.name === cur.name)
+    );
+    if (found) {
+      setUser(found);
+      try { localStorage.setItem(USER_KEY, JSON.stringify(found)); } catch (e) { /* 忽略 */ }
+    }
+    return found || null;
+  },
 
   // ---------- 用户 ----------
   users: async (params = {}) => {
