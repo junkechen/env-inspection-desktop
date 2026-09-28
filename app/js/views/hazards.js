@@ -99,8 +99,8 @@ export default {
         </el-table-column>
       </el-table>
       </div>
-      <div style="margin-top:14px;text-align:right">
-        <el-pagination background layout="total, prev, pager, next" :total="total" :page-size="size" :current-page="page" @current-change="onPage" />
+      <div style="margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:12px">
+        <el-pagination background layout="total, sizes, prev, pager, next, jumper" :total="total" :page-size="size" :page-sizes="[10,20,50,100]" :current-page="page" @current-change="onPage" @size-change="onSize" />
       </div>
     </div>
 
@@ -379,6 +379,7 @@ export default {
       } finally { loading.value = false; }
     }
     function search() { page.value = 1; load(); }
+    function onSize(v) { size.value = v; page.value = 1; load(); }
     // 「重置」是用户主动触发的动作，先失效缓存再取数，
     // 否则在 TTL 内点击会直接命中缓存、看起来像没生效。
     function reset() {
@@ -660,7 +661,7 @@ export default {
       kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness, bizFilterOpts,
       canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue,
       detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, saving, uploading, exporting, overdueOnly, form,
-      search, reset, onPage, openDetail, startRectify, submitRectify, reviewIssue, onFeedbackUpload, onDetailFeedbackUpload, removeFeedbackPhoto, openFeedback, onCreateUpload, openRemind, sendRemind, openCreate, create,
+      search, reset, onPage, onSize, openDetail, startRectify, submitRectify, reviewIssue, onFeedbackUpload, onDetailFeedbackUpload, removeFeedbackPhoto, openFeedback, onCreateUpload, openRemind, sendRemind, openCreate, create,
       exportExcel, exportPdf,
       onBusinessChange, onAssigneeChange, statusClass, severityClass, fmtDate, businessLabelOf,
       Search, Refresh, Plus, View, Bell, Download, Printer, ArrowLeft

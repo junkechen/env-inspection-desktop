@@ -100,6 +100,14 @@ export async function resolveHtmlImages(html) {
       out = out.split(from).join(to);
     }
   }
+  // 懒加载：为正文图片补 loading=lazy / decoding=async，
+  // 长图文打开时浏览器不会一次性解码全部图片，避免瞬时卡顿。
+  out = out.replace(/<img\b([^>]*)>/gi, (full, attrs) => {
+    let a = attrs;
+    if (!/\bloading\s*=/.test(a)) a += ' loading="lazy"';
+    if (!/\bdecoding\s*=/.test(a)) a += ' decoding="async"';
+    return '<img' + a + '>';
+  });
   return out;
 }
 

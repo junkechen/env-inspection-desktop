@@ -423,7 +423,7 @@ export default {
     function bizFiltered() { return allHazards.filter(h => businessOf(h) === filterBiz.value); }
     function applyBiz() {
       Object.assign(s, computeStats(bizFiltered()));
-      render();
+      scheduleRender();
     }
     const chartEl = ref(null);
     const pieEl = ref(null);
@@ -481,29 +481,36 @@ export default {
       store.backHandler = vals.some(v => v) ? closeTopDialog : null;
     });
 
-    async function load() {
+    async function load(forceSync = false) {
       try {
         nowText.value = new Date().toLocaleString('zh-CN', { hour12: false });
-        // 落地页强制与云端同步消息/公告已读状态：手机端已读后回到电脑端立即跟随
-        api.refreshCache('message');
-        api.refreshCache('announcement');
+        // 仅在进入首页（onMounted）时强制与云端同步消息/公告已读状态，
+        // 保证手机端已读后回到电脑端立即跟随；后台 SWR 刷新不再强制重拉，
+        // 避免任何数据变动都触发阻塞式联网，造成界面卡顿。
+        if (forceSync) {
+          api.refreshCache('message');
+          api.refreshCache('announcement');
+        }
         const user = store.user;
-        // 全量列表一次取回，按当前业务过滤后再聚合（管理员与普通用户同路径，
-        // 便于业务切换时无需重新请求）。
+        // 三路数据并行请求：首屏/刷新耗时从 3× 网络往返降为 1×。
+        // 全量隐患一次取回，按当前业务过滤后再聚合（管理员与普通用户同路径）。
         // 统计口径与手机端统计页对齐：只按业务过滤，不做「上报人/整改人」角色过滤
         // （业务→科室映射已保证数据隔离：SAFE=AQ，SAVING/ENV=JN）。
-        const hr = await api.hazards({ page: 1, size: 0 });
+        const [hr, m, annR] = await Promise.all([
+          api.hazards({ page: 1, size: 0 }),
+          api.messages({}),
+          api.announcements({ includeExpired: true })
+        ]);
         allHazards = hr.list || [];
         const res = computeStats(bizFiltered());
         Object.assign(s, res);
         store.unread = res.unreadMessages || 0;
-        const m = await api.messages({});
         const visible = filterMessagesByUser(user, m.list || []);
         messages.value = visible.slice(0, 6);
         // 未读：管理员沿用 api.stats 的口径（全部消息未读数）；普通用户按可见消息
         if (isAdmin(user)) store.unread = (m.list || []).filter(x => x.isRead === false).length;
         else store.unread = visible.filter(x => x.isRead !== true).length;
-        await loadAnnouncements(user);
+        await loadAnnouncements(user, annR);
         // 取缓存中数据的真实取数时刻，而不是本次渲染时刻：
         // 冷启动会先渲染磁盘上的旧数据，若显示渲染时刻会把陈旧数据说成"刚更新"
         const ts = cachedAt('col:');
@@ -511,7 +518,7 @@ export default {
           ? new Date(ts).toLocaleTimeString('zh-CN', { hour12: false })
           : '';
         await nextTick();
-        render();
+        scheduleRender();
       } catch (e) {
         console.error('[dashboard] load failed:', e);
         ElMessage.error('仪表盘数据加载失败：' + e.message);
@@ -529,9 +536,9 @@ export default {
 
     // 首页公告：只取前 5 条作预览。
     // 权限过滤必须放在前端——云端 query 不过滤公告，普通用户能看到草稿。
-    async function loadAnnouncements(user) {
+    async function loadAnnouncements(user, r) {
       try {
-        const r = await api.announcements({ includeExpired: true });
+        if (!r) r = await api.announcements({ includeExpired: true });
         const visible = visibleAnnouncements(user, r.list || [], Date.now())
           .filter(a => matchTargetDept(a, currentDept()));
         announcements.value = visible.slice(0, 5);
@@ -616,6 +623,17 @@ export default {
       return Math.round((list[i].value || 0) / total * 100);
     }
 
+    // 防抖渲染：连续多次刷新（业务切换 / 后台 SWR 合并）只重绘一次；
+    // 同时把 5 个 ECharts 的初始化延后到下一帧之后，避免阻塞首屏渲染。
+    let renderTimer = null;
+    function scheduleRender() {
+      if (renderTimer) return;
+      renderTimer = setTimeout(() => {
+        renderTimer = null;
+        render();
+      }, 120);
+    }
+
     function render() {
       if (trendEl.value && !trend) trend = echarts.init(trendEl.value, 'dark', { renderer: 'canvas' });
       if (severityEl.value && !severity) severity = echarts.init(severityEl.value, 'dark', { renderer: 'canvas' });
@@ -641,7 +659,7 @@ export default {
           { name: '新增', type: 'line', smooth: true, data: s.trend.map(x => x.created), itemStyle: { color: '#00e5a0' }, lineStyle: { width: 3, shadowColor: 'rgba(0,229,160,.5)', shadowBlur: 12 }, areaStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(0,229,160,.35)'},{offset:1,color:'rgba(0,229,160,.02)'}]) } },
           { name: '闭环', type: 'line', smooth: true, data: s.trend.map(x => x.closed), itemStyle: { color: '#38bdf8' }, lineStyle: { width: 2, type: 'dashed' } }
         ]
-      }, true);
+      }, false);
 
       // 等级分布
       if (severity) severity.setOption({
@@ -658,7 +676,7 @@ export default {
             { name: SEVERITY_MAP.critical, value: s.bySeverity.critical || 0, itemStyle: { color: '#f87171' } }
           ]
         }]
-      }, true);
+      }, false);
 
       // 部门柱状
       if (bar) bar.setOption({
@@ -668,7 +686,7 @@ export default {
         xAxis: { type: 'category', data: s.byDepartment.map(d => d.name), axisLabel: { interval: 0, rotate: 30, color: '#e5e7eb', fontSize: 11, hideOverlap: true }, axisLine: { lineStyle: { color: 'var(--c-border)' } } },
         yAxis: { type: 'value', minInterval: 1, ...commonAxis },
         series: [{ type: 'bar', data: s.byDepartment.map(d => d.value), itemStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#f59e0b'},{offset:1,color:'#b45309'}]), borderRadius: [4,4,0,0] }, label: { show: true, position: 'top', color: '#fff' } }]
-      }, true);
+      }, false);
 
       // 状态分布
       if (pie) pie.setOption({
@@ -686,7 +704,7 @@ export default {
             { name: STATUS_MAP.closed, value: s.counts.closed, itemStyle: { color: '#34d399' } }
           ]
         }]
-      }, true);
+      }, false);
 
       // 问题类型（图例用卡片底部的自定义列表，图内不放 label/legend）
       if (category) category.setOption({
@@ -699,7 +717,7 @@ export default {
           labelLine: { show: false },
           data: (s.byCategory || []).map((c, i) => ({ name: c.name, value: c.value, itemStyle: { color: DEPT_COLORS[i % DEPT_COLORS.length] } }))
         }]
-      }, true);
+      }, false);
 
       // chartEl 与 pieEl 是旧 dashboard 用的，这里已并到 trend/pie，置空保留引用避免影响
       chartEl.value = null; pieEl.value = null;
@@ -718,10 +736,10 @@ export default {
     let reloadTimer = null;
     const offUpdate = onUpdate(() => {
       clearTimeout(reloadTimer);
-      reloadTimer = setTimeout(() => { load(); }, 300);
+      reloadTimer = setTimeout(() => { load(false); }, 300);
     });
 
-    onMounted(() => { load(); silentStartupCheck(); });
+    onMounted(() => { load(true); silentStartupCheck(); });
     onBeforeUnmount(() => {
       window.removeEventListener('resize', onResize);
       offUpdate();
