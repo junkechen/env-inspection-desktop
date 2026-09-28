@@ -200,9 +200,11 @@ export default {
 
     <!-- 问题类型 + 重复问题 -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px">
-      <div class="card" style="border-top:2px solid #f472b6">
+      <div class="card" style="border-top:2px solid #f472b6;display:flex;flex-direction:column">
         <h3 style="margin:0 0 12px">问题类型分布</h3>
-        <div ref="categoryEl" style="height:280px"></div>
+        <!-- flex:1 撑满卡片剩余高度：右侧「重复问题分析」列表较长会拉高整行，
+             图表容器随之变高并垂直居中，避免固定 280px 顶部堆积、下方大片空白 -->
+        <div ref="categoryEl" style="flex:1;min-height:280px"></div>
       </div>
       <div class="card" style="border-top:2px solid #fb923c">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
@@ -732,8 +734,18 @@ export default {
       reloadTimer = setTimeout(() => { load(false); }, 300);
     });
 
-    onMounted(() => { load(true); silentStartupCheck(); });
+    // 卡片高度会随右侧「重复问题分析」列表长度变化（grid 拉伸），
+    // 用 ResizeObserver 监听图表容器尺寸，变化时让 ECharts 重排，避免图偏上或溢出
+    let catRO = null;
+    onMounted(() => {
+      load(true); silentStartupCheck();
+      if (window.ResizeObserver && categoryEl.value) {
+        catRO = new ResizeObserver(() => { category && category.resize(); });
+        catRO.observe(categoryEl.value);
+      }
+    });
     onBeforeUnmount(() => {
+      if (catRO) { catRO.disconnect(); catRO = null; }
       window.removeEventListener('resize', onResize);
       offUpdate();
       clearTimeout(reloadTimer);

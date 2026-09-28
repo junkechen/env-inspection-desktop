@@ -1,7 +1,7 @@
 {
-  "version": "1.0.19",
-  "exeName": "GZInspection_v1.0.19.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.19.exe",
-  "notes": "修复仪表盘渲染出错（computed 未声明导致业务切换栏初始化失败，页面提示渲染出错/无法显示）的问题。",
+  "version": "1.0.20",
+  "exeName": "GZInspection_v1.0.20.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.20.exe",
+  "notes": "优化仪表盘「问题类型分布」布局：图表随卡片高度自适应并垂直居中，不再固定顶部、下方留大片空白。",
   "publishedAt": "2026-09-28"
 }
