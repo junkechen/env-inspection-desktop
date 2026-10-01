@@ -1,94 +1,116 @@
-// 业务类型定义 —— 用户业务归属 + 隐患类别级联的唯一配置出处
+// 业务类型定义 —— 用户业务归属 + 隐患类别级联的配置入口
 //
 // 与「科室」（dept.js，数据隔离维度）相互独立：
-//   · 业务类型（安全/节能/环保）是用户/隐患的标签；
+//   · 业务类型（安全/节能/环保…）是用户/隐患的标签；
 //   · 科室（AQ/JN）决定数据可见范围，由「业务 → 科室」映射推导。
 //
-// 本模块是类别字典的唯一真源，dept.js 会反向 import 本模块（business.js 不依赖 dept.js，无环）。
-
-export const BUSINESS_TYPES = [
-  { code: 'SAFE', name: '安全业务', short: '安全', color: '#e8823c', icon: '⚠' },
-  { code: 'SAVING', name: '节能业务', short: '节能', color: '#2e9e5b', icon: '🌿' },
-  { code: 'ENV', name: '环保业务', short: '环保', color: '#38bdf8', icon: '♻' }
-];
-
-export const BUSINESS_OPTS = BUSINESS_TYPES.map((b) => ({ value: b.code, label: b.name }));
-
-/** 全部业务类型 code —— 新增/未设置用户默认全选 */
-export const BUSINESS_ALL_CODES = BUSINESS_TYPES.map((b) => b.code);
-
-/** 业务 → 科室（数据隔离），与 dept.js 的 DEPTS.code 对应 */
-export const BUSINESS_TO_DEPT = {
-  SAFE: 'AQ',
-  SAVING: 'JN',
-  ENV: 'JN'
-};
+// 字典本体已迁到云端（appConfig 集合，见 config_store.js + builtin_dict.js）：
+//   · 管理员在【配置管理】里增删改，所有客户端无需重新编译即可生效；
+//   · 本文件只做「组装」——把动态字典与老导出名对齐，保证既有调用方零改造；
+//   · 静态常量（BUSINESS_TYPES 等）保留为离线兜底值，运行时请优先用动态函数
+//     （activeBusinesses / businessOptions / deptOfBusiness / categoryNamesOf）。
+import {
+  BUILTIN_BUSINESS_TYPES, BUILTIN_BUSINESS_TO_DEPT,
+  BUILTIN_CATEGORY_BY_BUSINESS, BUILTIN_BUSINESS_OF_CATEGORY
+} from './builtin_dict.js';
+import {
+  activeBusinesses, deptOfBusiness, bizOfCategoryName
+} from './config_store.js';
 
 /**
- * 按业务划分的隐患类别字典（库里仍存中文本身，历史数据零迁移）。
- * 上报隐患时先选业务、再从本字典取类别下拉；安全业务 13 项（含其他），
- * 节能 10 项，环保 5 项（沿用原废水/废气/固废/噪音/其他）。
+ * 【授权模式】账号未显式设置 businessTypes 时怎么算。
+ *
+ *   'inherit'（默认）: 继承「当前科室派生的业务」——等价于老版本的“全能”语义。
+ *                      保留它是为了不打断存量账号：历史上管理员从未给普通账号设过
+ *                      业务，一刀切成“空=无权限”会让所有人打开软件就看不到业务。
+ *   'strict'         : 空即未授权，什么业务都用不了，必须管理员显式赋权。
+ *
+ * 什么时候改成 'strict'：管理员已在【用户管理】用「批量赋权」把存量账号补齐后。
+ * 注意：无论哪种模式，管理员（role=admin）账号始终继承全部 —— 否则 admin 自己
+ * 把自己锁死，连赋权界面都进不去（这是最容易踩的自锁坑）。
  */
-export const CATEGORY_BY_BUSINESS = {
-  SAFE: [
-    '工艺', '电气仪表', '消防应急', '设备隐患', '规章制度', '特种设备',
-    '培训教育', '安全投入', '违章操作', '职业卫生', '有限空间', '外来施工', '其他'
-  ],
-  SAVING: [
-    '节水', '节电', '压风', '氢气', '氮气', '燃气', '耗能设备',
-    '工艺节能', '浪费损耗', '碳排管理'
-  ],
-  ENV: [
-    '废水排放', '废气排放', '固废管理', '噪音污染', '其他'
-  ]
-};
+export const UNAUTH_MODE = 'inherit';
 
-/** 类别 → 业务 反查（旧隐患无 businessType，靠类别归业务；再映射科室） */
-export const BUSINESS_OF_CATEGORY = (() => {
-  const m = {};
-  for (const b of Object.keys(CATEGORY_BY_BUSINESS)) {
-    for (const c of CATEGORY_BY_BUSINESS[b]) m[c] = b;
-  }
-  return m;
-})();
+/** @deprecated 仅为兼容旧 import；运行时请用 activeBusinesses() */
+export const BUSINESS_TYPES = BUILTIN_BUSINESS_TYPES;
+export const BUSINESS_OPTS = BUILTIN_BUSINESS_TYPES.map((b) => ({ value: b.code, label: b.name }));
+export const BUSINESS_ALL_CODES = BUILTIN_BUSINESS_TYPES.map((b) => b.code);
+export const BUSINESS_TO_DEPT = BUILTIN_BUSINESS_TO_DEPT;
+export const CATEGORY_BY_BUSINESS = BUILTIN_CATEGORY_BY_BUSINESS;
+export const BUSINESS_OF_CATEGORY = BUILTIN_BUSINESS_OF_CATEGORY;
 
-/** 当前用户的业务类型信息数组（code→定义对象，过滤脏值） */
+/**
+ * 当前用户的业务类型信息数组（过滤脏值）。
+ *
+ * 【为什么这是“默认不赋权”的实现点】
+ *   user.businessTypes 是**显式列表**，管理员在【用户管理】里勾选才有值。
+ *   字典里新增一项（比如 suppression 抑尘业务）不会写进任何人的 businessTypes，
+ *   因此天然不会自动出现在任何用户的下拉里 —— 字典新增与赋权是两条独立链路。
+ */
 export function businessInfos(user) {
   const codes = (user && Array.isArray(user.businessTypes)) ? user.businessTypes : [];
-  return codes.map((c) => BUSINESS_TYPES.find((b) => b.code === c)).filter(Boolean);
+  const dict = activeBusinesses();
+  return codes.map((c) => dict.find((b) => b.code === c)).filter(Boolean);
 }
 
 /** 右上角徽章用：短名拼接，如「安全 / 节能」；未设置视为全部业务 */
 export function businessShortLabel(user) {
   const infos = businessInfos(user);
-  return infos.length ? infos.map((i) => i.short).join(' / ') : '全部业务';
+  return infos.length ? infos.map((i) => i.short || i.name).join(' / ') : '全部业务';
 }
 
 /** 列表列用：全名拼接，如「安全业务 / 节能业务」；空数组视为全部业务 */
 export function businessNames(row) {
   const codes = (row && Array.isArray(row.businessTypes)) ? row.businessTypes : [];
-  const names = codes.map((c) => (BUSINESS_TYPES.find((b) => b.code === c) || {}).name || c);
+  const dict = activeBusinesses();
+  const names = codes.map((c) => (dict.find((b) => b.code === c) || {}).name || c);
   return names.join(' / ') || '全部业务';
 }
 
 /** 隐患业务中文名（用于列表/详情展示） */
 export function businessLabelOf(code) {
-  const b = BUSINESS_TYPES.find((x) => x.code === code);
+  const b = activeBusinesses().find((x) => x.code === code);
   return b ? b.name : (code || '—');
 }
 
+/** 业务下拉选项（动态，管理员新增的业务会立刻出现在这里） */
+export function businessOptions() {
+  return activeBusinesses().map((b) => ({ value: b.code, label: b.name }));
+}
+
+/** 全部业务 code（动态） */
+export function businessCodes() {
+  return activeBusinesses().map((b) => b.code);
+}
+
+/** 业务 → 科室（动态，含被停用业务，保证历史数据仍可定位科室） */
+export function deptOf(code) {
+  return deptOfBusiness(code);
+}
+
 /**
- * 指定科室下可见的业务列表（科室隔离：SAFE→AQ，SAVING/ENV→JN）。
+ * 指定科室下「可见」的业务列表（科室隔离：SAFE→AQ，SAVING/ENV→JN）。
  *
- * 权限优先级（修复「多业务用户被科室限死、无法切换」）：
- *   1. 账号已设置业务权限（businessTypes 非空）→ 直接以账号权限为准，
- *      不被所在科室限制，可在全部授权业务间切换（与手机端一致）。
- *   2. 账号未设置业务（如 admin）→ 按当前科室派生可见业务，
- *      保证右上角切换科室后仪表盘/隐患页联动。
+ * 优先级（含两次历史修复，改动前请先看这里）：
+ *   1. 账号已设业务权限（businessTypes 非空）→ 以账号权限为准，不被科室限死。
+ *      （v1.0.14：修复“多业务用户只能看到一项”）
+ *   2. 管理员账号 → 继承当前科室派生的业务，保证右上角切科室后仪表盘联动。
+ *   3. 其他角色未设业务 → 看 UNAUTH_MODE：
+ *        inherit（默认）= 继承科室派生，兼容存量账号；
+ *        strict           = 空数组，体现“未赋权不可用”。
  */
 export function businessesForDept(deptCode, user) {
   const infos = businessInfos(user);
   if (infos.length) return infos;
-  const deptBiz = BUSINESS_TYPES.filter((b) => BUSINESS_TO_DEPT[b.code] === deptCode);
-  return deptBiz.length ? deptBiz : BUSINESS_TYPES;
+  const dict = activeBusinesses();
+  const u = user || {};
+  const isAdminUser = u.role === 'admin' || u.username === 'admin' || u.username === 'Administrator';
+  if (!isAdminUser && UNAUTH_MODE === 'strict') return [];
+  const deptBiz = dict.filter((b) => deptOfBusiness(b.code) === deptCode);
+  return deptBiz.length ? deptBiz : dict;
+}
+
+/** 类别 → 业务 反查（动态，含已停用类别 —— 历史隐患的科室归属全靠它） */
+export function businessOfCategory(name) {
+  return bizOfCategoryName(name);
 }

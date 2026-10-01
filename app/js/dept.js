@@ -79,12 +79,17 @@ export function deptInfo(code) {
 //   4. 兜底默认科室
 // 类别在库里存中文本身，故 BUSINESS_OF_CATEGORY 仍用中文匹配，历史数据零迁移。
 // ============================================================
-import { CATEGORY_BY_BUSINESS, BUSINESS_TO_DEPT, BUSINESS_OF_CATEGORY } from './business.js';
+import { categoryNamesOf, deptOfBusiness, bizOfCategoryName } from './config_store.js';
 
-/** 类别下拉：指定业务返回该业务类别；不指定返回全部（合并三业务） */
+/**
+ * 类别下拉：指定业务返回该业务的启用类别；不指定返回全部（合并各业务）。
+ *
+ * 动态字典：管理员在【配置管理】新增/停用的类别会反映到这里。
+ * 取不到配置时 categoryNamesOf 内部回退内置字典，因此永远不会返回空数组 ——
+ * 字典故障不应该表现为“所有人都没法上报隐患”。
+ */
 export function categoryOptions(businessCode) {
-  if (businessCode && CATEGORY_BY_BUSINESS[businessCode]) return CATEGORY_BY_BUSINESS[businessCode];
-  return Object.values(CATEGORY_BY_BUSINESS).flat();
+  return categoryNamesOf(businessCode);
 }
 
 /**
@@ -96,12 +101,18 @@ export function categoryOptions(businessCode) {
 export function hazardDeptOf(h) {
   if (!h) return DEFAULT_DEPT;
   if (isValidDept(h.deptCode)) return h.deptCode;
-  if (h.businessType && BUSINESS_TO_DEPT[h.businessType] && isValidDept(BUSINESS_TO_DEPT[h.businessType])) {
-    return BUSINESS_TO_DEPT[h.businessType];
+  if (h.businessType) {
+    const d = deptOfBusiness(h.businessType);
+    if (isValidDept(d)) return d;
   }
-  // 旧隐患无 businessType：靠中文类别反查业务 → 科室
-  const biz = BUSINESS_OF_CATEGORY[h.category];
-  if (biz && BUSINESS_TO_DEPT[biz] && isValidDept(BUSINESS_TO_DEPT[biz])) return BUSINESS_TO_DEPT[biz];
+  // 旧隐患无 businessType：靠中文类别反查业务 → 科室。
+  // 反查走「含已停用」的全量字典（bizOfCategoryName），
+  // 否则管理员停用某个类别后，历史隐患会被静默改判到兜底科室。
+  const biz = bizOfCategoryName(h.category);
+  if (biz) {
+    const d = deptOfBusiness(biz);
+    if (isValidDept(d)) return d;
+  }
   return DEFAULT_DEPT;
 }
 

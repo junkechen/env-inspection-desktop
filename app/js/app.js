@@ -1,8 +1,9 @@
 import { api } from './api.js';
 import { store, logout, toggleSidebar, closeSidebar } from './store.js';
 import { route, navigate, topPath, back } from './router.js';
-import { canManageUsers } from './permission.js';
+import { canManageUsers, canManageConfig } from './permission.js';
 import { businessInfos, businessShortLabel } from './business.js';
+import { loadConfig } from './config_store.js';
 import Login from './views/login.js';
 import { currentDept, deptInfo, availableDepts, switchDept } from './dept.js';
 import Dashboard from './views/dashboard.js';
@@ -11,6 +12,7 @@ import Users from './views/users.js';
 import Departments from './views/departments.js';
 import Messages from './views/messages.js';
 import Announcements from './views/announcements.js';
+import Config from './views/config.js';
 
 const { createApp, computed, watch, onMounted, ref } = Vue;
 
@@ -21,7 +23,9 @@ const menus = [
   // 仅管理员可见（权限漏洞修复：此前普通用户也能进用户管理改人/审批）
   { path: '/users', title: '用户管理', icon: 'User', adminOnly: true },
   { path: '/departments', title: '部门/车间', icon: 'OfficeBuilding' },
-  { path: '/messages', title: '消息催办', icon: 'Bell' }
+  { path: '/messages', title: '消息催办', icon: 'Bell' },
+  // 业务类型 / 隐患类别字典维护 —— 仅管理员，字典新增后还要回用户管理赋权
+  { path: '/config', title: '配置管理', icon: 'Setting', adminOnly: true }
 ];
 
 const viewMap = {
@@ -31,7 +35,8 @@ const viewMap = {
   '/users': Users,
   '/departments': Departments,
   // 统计分析已合并到仪表盘（/statistics 自动回退到 /）
-  '/messages': Messages
+  '/messages': Messages,
+  '/config': Config
 };
 
 const ErrorBox = {
@@ -167,6 +172,12 @@ const App = {
         ElementPlus.ElMessage.warning('用户管理仅限管理员使用');
         navigate('/');
       }
+      // 配置管理同理：业务类型/隐患类别字典的维护仅管理员。
+      // （views/config.js 里还有一层 allowed 守卫，这是第二道）
+      if (store.user && topPath(p) === '/config' && !canManageConfig(store.user)) {
+        ElementPlus.ElMessage.warning('配置管理仅限管理员使用');
+        navigate('/');
+      }
     });
     onMounted(async () => {
       console.log('[app] mounted. user=', store.user ? store.user.username : null, 'route=', route.path);
@@ -181,6 +192,9 @@ const App = {
           store.unread = r.unread;
           console.log('[app] unread messages:', r.unread);
         } catch (e) { console.error('[app] 拉取未读消息失败:', e.message); }
+        // 字典优先于业务数据就位：不 await，让首屏继续渲染，
+        // 取不到时各页面自动用内置字典。
+        syncConfig();
       } else if (route.path !== '/login') {
         navigate('/login');
       }
@@ -195,9 +209,17 @@ const App = {
       try { await api.refreshMe(); console.log('[app] 已同步当前用户最新权限'); }
       catch (e) { console.warn('[app] 同步当前用户失败:', e && e.message); }
     }
+    // 动态字典同步：业务类型/隐患类别属于低频变更，与账号权限同频 DSM（60 秒）。
+    // 加载失败不影响任何功能 —— config_store 会自动回退内置字典（内置兜底优先于报错）。
+    let configTimer = null;
+    async function syncConfig() {
+      if (!store.user) return;
+      try { await loadConfig(true); } catch (e) { console.warn('[app] 同步配置字典失败（沿用内置字典）:', e && e.message); }
+    }
     if (typeof window !== 'undefined') {
-      window.addEventListener('focus', () => syncCurrentUser());
+      window.addEventListener('focus', () => { syncCurrentUser(); syncConfig(); });
       userSyncTimer = setInterval(() => syncCurrentUser(), 60 * 1000);
+      configTimer = setInterval(() => syncConfig(), 60 * 1000);
     }
 
     // 登录成功（store.user 由 null 变为用户）时同样预热，

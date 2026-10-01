@@ -14,7 +14,9 @@ import {
   collectExpiredForArchive, readStats
 } from './announcement.js';
 
-const GW = (window.__API_BASE__) ||
+// typeof 判断而非裸 window.xxx：node 下的单测会 import 本模块（见 test/*.test.mjs），
+// 裸读 window 会让整条依赖链在 ModuleJob 阶段就崩，且报错信息完全指向不到真正原因。
+const GW = (typeof window !== 'undefined' && window.__API_BASE__) ||
   'https://anuanbu1-1-6gjqaydwd067dbb1-1421679372.ap-shanghai.app.tcloudbase.com/api';
 export const ENV = 'anuanbu1-1-6gjqaydwd067dbb1';
 
@@ -254,6 +256,61 @@ export const api = {
   resetPassword: async (id) => {
     const r = await rpc('update', { collection: 'users', query: { _id: id }, data: { password: '123456' } });
     invalidate(cachePrefix('users'));
+    return r;
+  },
+
+  // ---------- 动态字典配置（appConfig 集合） ----------
+  /**
+   * 读取全部配置文档，按 key 索引：{ business_types: {...}, issue_categories: {...} }
+   *
+   * 集合不需要预先在控制台创建：云函数首次 add 会自建；读取时集合不存在会
+   * 返回空列表而不是报错，config_store 会自动回退内置字典并尝试播种。
+   */
+  getAppConfig: async () => {
+    let all = [];
+    try {
+      all = await queryCollection('appConfig');
+    } catch (e) {
+      // 集合不存在 / 网关异常：视为「尚未配置」，由上层走内置兜底
+      console.warn('[api] appConfig 读取失败，将使用内置字典:', e && e.message);
+      return {};
+    }
+    const map = {};
+    (all || []).forEach((d) => { if (d && d.key) map[d.key] = d; });
+    return map;
+  },
+  /**
+   * 保存某类配置（upsert）。operator 为当前操作者，会随文档落盘用于问责。
+   *
+   * 权限说明：这里只是「数据访问层」的入口，真正的边界在云函数
+   * （index.js 的 requireAdminForConfig）——前端可以被绕过，云端必须校验。
+   * 前端仍做一次判断，目的是立刻给出可读原因，而不是发出注定失败的请求。
+   */
+  saveAppConfig: async (key, items, operator) => {
+    let all = [];
+    try { all = await queryCollection('appConfig'); } catch (e) { all = []; }
+    const doc = (all || []).find((d) => d && d.key === key);
+    const payload = {
+      key,
+      items,
+      updateBy: (operator && (operator.username || operator.name)) || '',
+      updateTime: new Date().toISOString(),
+      version: ((doc && Number(doc.version)) || 0) + 1,
+      // 云函数侧的身份凭据（会被完后剔除，不落库）。当前电脑端用的是本地伪 token，
+      // 云端核不到身份，所以显式带上操作者账号，由服务端回表核对该账号是否仍在管理员状态。
+      __operator: {
+        username: (operator && operator.username) || '',
+        name: (operator && operator.name) || '',
+        role: (operator && operator.role) || ''
+      }
+    };
+    let r;
+    if (doc && doc._id) {
+      r = await rpc('update', { collection: 'appConfig', query: { _id: doc._id }, data: payload });
+    } else {
+      r = await rpc('add', { collection: 'appConfig', data: payload });
+    }
+    invalidate(cachePrefix('appConfig'));
     return r;
   },
 

@@ -2,7 +2,9 @@
 import { getStoredUser, clearSession } from './api.js';
 import { resetDept } from './dept.js';
 
-const { reactive } = Vue;
+// node 环境（test/*.mjs）没有全局 Vue，降级为普通对象：
+// 行为一致，只是失去响应式 —— 否则测试链路里任何一处 import 本文件都会整片崩。
+const reactive = (typeof Vue !== 'undefined' && Vue.reactive) ? Vue.reactive : (s) => s;
 
 export const store = reactive({
   user: getStoredUser(),

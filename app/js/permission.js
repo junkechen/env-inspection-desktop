@@ -95,6 +95,25 @@ export function canReview(user) {
 export function canManageUsers(user) {
   return !!(user && user.role === 'admin');
 }
+/**
+ * 【动态字典】业务类型 / 隐患类别的「字典维护」权限 —— 仅管理员。
+ *
+ * 两个层面必须分清（本次权限设计的边界）：
+ *   1. 字典维护（新增/编辑/停用/删除某一项）：canManageConfig，仅 admin；
+ *   2. 字典使用（查看、按业务筛选、填报时选已有类别）：所有角色照常。
+ * 新增项默认不赋权给任何人，必须在【用户管理】里显式勾选后才对该用户可见，
+ * 规则见 business.js 的 businessesForDept 注释。
+ */
+export function canManageConfig(user) {
+  return !!(user && user.role === 'admin');
+}
+/**
+ * 【赋权边界】能否给账号分配业务类型。
+ * 字典里新增一项，不等于任何用户获得使用权 —— 只有这道权限允许改写 user.businessTypes。
+ */
+export function canAssignBusiness(user) {
+  return !!(user && user.role === 'admin');
+}
 // 公告管理（发布/编辑/删除/置顶）：严格限定管理员，其他角色一律只读
 export function canManageAnnouncement(user) {
   return !!(user && user.role === 'admin');

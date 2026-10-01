@@ -3,7 +3,7 @@ import { store } from '../store.js';
 import { navigate } from '../router.js';
 import { isAdmin, filterMessagesByUser } from '../permission.js';
 import { computeStats, businessOf } from '../stats_utils.js';
-import { BUSINESS_OPTS, businessLabelOf, businessesForDept } from '../business.js';
+import { businessOptions, businessLabelOf, businessesForDept } from '../business.js';
 import { resolveIssuePhotos, resolveHtmlImages } from '../image_utils.js';
 import { visibleAnnouncements, sanitizeHtml, matchTargetDept, CATEGORY_MAP as ANN_CATEGORY_MAP } from '../announcement.js';
 import { currentDept } from '../dept.js';
@@ -410,9 +410,11 @@ export default {
     // 业务范围：随「当前科室」与「登录用户的业务权限」响应式变化。
     // 此前是 setup 时一次性初始化的普通 ref，导致管理员在后台调整某账号业务权限后，
     // 必须重新登录才能看到新业务。改为 computed，并监听 store.user 变化自动重算。
+    // 兜底分支（账号未被显式赋权且 UNAUTH_MODE=strict）时用「字典里全部启用业务」，
+    // 走动态 businessOptions()，管理员新增的业务会立刻出现。
     const bizList = computed(() => {
       const bs = businessesForDept(currentDept(), store.user);
-      return bs.length ? bs : BUSINESS_OPTS.map(o => ({ code: o.value, name: o.label }));
+      return bs.length ? bs : businessOptions().map(o => ({ code: o.value, name: o.label }));
     });
     const filterBiz = ref(bizList.value[0] ? bizList.value[0].code : 'SAFE');
     // 账号业务权限或科室变化时，业务范围随之变化：保证当前选中项仍在范围内，并重算统计

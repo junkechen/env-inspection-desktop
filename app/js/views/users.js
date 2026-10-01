@@ -1,5 +1,5 @@
 import { api, ROLE_MAP } from '../api.js';
-import { BUSINESS_OPTS, BUSINESS_ALL_CODES, businessNames } from '../business.js';
+import { businessOptions, businessCodes, businessNames, UNAUTH_MODE } from '../business.js';
 import { canManageUsers } from '../permission.js';
 import { store } from '../store.js';
 
@@ -22,10 +22,15 @@ export default {
       <el-button :icon="Refresh" @click="reset">重置</el-button>
       <span class="spacer"></span>
       <el-button type="success" :icon="Plus" @click="openCreate">新增用户</el-button>
+      <!-- 批量赋权：字典里新增业务后，用它给一批账号补授，避免逐个点开编辑 -->
+      <el-button type="warning" :icon="Key" :disabled="!selection.length" @click="openBatch">
+        批量赋权<template v-if="selection.length">（{{ selection.length }}）</template>
+      </el-button>
     </div>
 
     <div class="card">
-      <el-table :data="list" v-loading="loading" stripe>
+      <el-table :data="list" v-loading="loading" stripe @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="46" />
         <el-table-column prop="name" label="姓名" width="110" />
         <el-table-column prop="username" label="用户名" width="140" />
         <el-table-column prop="phone" label="手机号" width="140" />
@@ -86,9 +91,15 @@ export default {
         </el-form-item>
         <el-form-item label="部门"><el-input v-model="form.department" /></el-form-item>
         <el-form-item label="业务类型">
-          <el-select v-model="form.businessTypes" multiple style="width:100%" placeholder="可单选或多选">
+          <el-select v-model="form.businessTypes" multiple style="width:100%" placeholder="未勾选 = 未显式授权">
             <el-option v-for="b in BUSINESS_OPTS" :key="b.value" :label="b.label" :value="b.value" />
           </el-select>
+          <!-- 赋权语义必须写在界面上：字典里新增一项 ≠ 该用户获得使用权 -->
+          <div style="color:var(--c-text-soft);font-size:12px;margin-top:4px">
+            在【配置管理】新增的业务/类别只会进入全局字典，<b>不会自动给任何账号加权限</b>；
+            必须在这里勾选并保存后，该账号才能在业务上报、隐患填报、列表筛选中使用。
+            <span v-if="unauthInherit">未勾选的账号当前按「继承所在科室业务」处理（兼容模式）。</span>
+          </div>
         </el-form-item>
         <el-form-item label="密码" v-if="!editing"><el-input v-model="form.password" placeholder="默认123456" /></el-form-item>
       </el-form>
@@ -97,12 +108,39 @@ export default {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 批量赋权：给选中的一批账号追加/覆盖业务授权 -->
+    <el-dialog v-model="batchVisible" title="批量赋权" width="440px">
+      <div style="color:var(--c-text-soft);font-size:13px;margin-bottom:12px">
+        已选中 <b style="color:#fff">{{ selection.length }}</b> 个账号：{{ previewNames }}
+      </div>
+      <el-form label-width="90px">
+        <el-form-item label="业务类型" required>
+          <el-select v-model="batchForm.businessTypes" multiple style="width:100%" placeholder="请选择要授予的业务">
+            <el-option v-for="b in BUSINESS_OPTS" :key="b.value" :label="b.label" :value="b.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="赋权方式">
+          <el-radio-group v-model="batchForm.mode">
+            <el-radio-button value="merge">追加（保留原有）</el-radio-button>
+            <el-radio-button value="replace">覆盖（替换为本次选择）</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <div style="color:var(--c-text-soft);font-size:12px">
+        赋权结果对该账号下次打开（或 60 秒内）生效，无需重新登录。
+      </div>
+      <template #footer>
+        <el-button @click="batchVisible=false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="applyBatch">确认赋权</el-button>
+      </template>
+    </el-dialog>
   </div>
   <div v-else style="padding:60px;text-align:center">
     <el-result icon="warning" title="无访问权限" sub-title="用户管理仅限管理员使用，请联系管理员" />
   </div>`,
   setup() {
-    const { ref, reactive } = Vue;
+    const { ref, reactive, computed } = Vue;
     const { ElMessage, ElMessageBox } = ElementPlus;
     const { Search, Refresh, Plus, Edit, Delete, Key, ArrowDown } = ElementPlusIconsVue;
 
@@ -120,9 +158,60 @@ export default {
     const editing = ref(false);
     const saving = ref(false);
     const editingId = ref(null);
-    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [...BUSINESS_ALL_CODES], password: '123456' });
+    // 新建账号默认「不勾选任何业务」—— 字典新增与赋权解耦：
+    // 使用权必须由管理员在本页显式授予，不给一堆默认选中制造“谁都能用”的错觉。
+    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
 
     function roleLabel(r) { return (ROLE_OPTS.find((x) => x.value === r) || {}).label || r; }
+
+    // 业务下拉用动态字典：配置管理里新增的业务会立刻出现在这里
+    const bizOpts = computed(() => businessOptions());
+    // 兼容模式提示：UNAUTH_MODE='inherit' 时未勾选的账号仍能继承科室业务，
+    // 界面必须把这件事说出来，否则管理员会以为自己已经把权限收住了。
+    const unauthInherit = UNAUTH_MODE === 'inherit';
+
+    // ---------- 批量赋权 ----------
+    const selection = ref([]);
+    // 事件处理放在函数里，而不是模板内联 `selection = v`：
+    // setup 返回的 ref 在模板中被自动解包，直接赋值会写到解包后的普通值上。
+    function onSelectionChange(v) { selection.value = v; }
+    const batchVisible = ref(false);
+    const batchForm = reactive({ businessTypes: [], mode: 'merge' });
+    const previewNames = computed(() => selection.value.slice(0, 6).map((u) => u.name || u.username).join('、')
+      + (selection.value.length > 6 ? ' 等' : ''));
+    function openBatch() {
+      batchForm.businessTypes = [];
+      batchForm.mode = 'merge';
+      batchVisible.value = true;
+    }
+    /**
+     * 逐个提交（不用 updateMany）：
+     *   1. merge 模式下每个人的原有业务集合都不同，无法用一条 where 表达；
+     *   2. 逐个写可以让失败账号精确定位并继续，不会因为一条脏数据整批回滚。
+     * 失败不中断，最后统一汇报成功/失败数。
+     */
+    async function applyBatch() {
+      if (!Array.isArray(batchForm.businessTypes) || !batchForm.businessTypes.length) {
+        ElMessage.warning('请至少选择一个业务'); return;
+      }
+      saving.value = true;
+      let ok = 0, fail = 0;
+      try {
+        for (const u of selection.value) {
+          try {
+            const cur = Array.isArray(u.businessTypes) ? u.businessTypes : [];
+            const next = batchForm.mode === 'replace'
+              ? [...batchForm.businessTypes]
+              : [...new Set([...cur, ...batchForm.businessTypes])];
+            await api.updateUser(u._id, { businessTypes: next });
+            ok++;
+          } catch (e) { fail++; }
+        }
+        ElMessage[fail ? 'warning' : 'success'](`赋权完成：成功 ${ok} 个${fail ? '，失败 ' + fail + ' 个' : ''}`);
+        batchVisible.value = false;
+        load();
+      } finally { saving.value = false; }
+    }
 
     async function load() {
       loading.value = true;
@@ -139,13 +228,14 @@ export default {
 
     function openCreate() {
       editing.value = false; editingId.value = null;
-      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [...BUSINESS_ALL_CODES], password: '123456' });
+      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
       dialogVisible.value = true;
     }
     function openEdit(row) {
       editing.value = true; editingId.value = row._id;
-      // 未设置业务类型的存量用户，编辑时默认全选（空值即视为全部业务）
-      const bt = Array.isArray(row.businessTypes) && row.businessTypes.length ? row.businessTypes : [...BUSINESS_ALL_CODES];
+      // 存量账号若从未设置过业务，这里如实显示为“未勾选”，
+      // 由管理员决定是否补授 —— 不能偷偷按全选回填，否则等于静默给权限。
+      const bt = Array.isArray(row.businessTypes) ? [...row.businessTypes] : [];
       Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, businessTypes: bt });
       dialogVisible.value = true;
     }
@@ -210,7 +300,8 @@ export default {
 
     load();
     return {
-      allowed, ROLE_OPTS, BUSINESS_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
+      allowed, UNAUTH_MODE, ROLE_OPTS, BUSINESS_OPTS: bizOpts, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
+      selection, onSelectionChange, batchVisible, batchForm, previewNames, openBatch, applyBatch, unauthInherit,
       roleLabel, businessLabels: businessNames, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove, onCmd,
       Search, Refresh, Plus, Edit, Delete, Key, ArrowDown
     };

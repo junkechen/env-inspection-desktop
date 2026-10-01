@@ -9,11 +9,25 @@ const CATEGORY_MAP = {
   wastewater: '废水排放', wastegas: '废气排放', solidWaste: '固废管理', noise: '噪音污染', other: '其他'
 };
 
-/** 隐患业务判定：优先 businessType 字段，旧数据靠中文类别反查业务，未匹配归环保 */
+// 隐患业务判定：优先 businessType 字段，旧数据靠中文类别反查业务，未匹配归环保。
+//
+// 反查字典支持注入：动态配置上线后，管理员可以随时新增/停用类别，
+// 写死 BUSINESS_OF_CATEGORY 会让新类别的历史数据被误判业务（进而误判科室）。
+// 由 config_store 在加载完成后调用 setBizCategoryLookup 注入动态版本；
+// 未注入（本模块被 node 单测直接 import、或字典尚未加载）时，回退内置映射。
+let bizCategoryLookup = null;
+
+export function setBizCategoryLookup(fn) {
+  bizCategoryLookup = (typeof fn === 'function') ? fn : null;
+}
+
 export function businessOf(h) {
   if (h && h.businessType) return h.businessType;
   const cat = h && h.category;
-  if (cat && BUSINESS_OF_CATEGORY[cat]) return BUSINESS_OF_CATEGORY[cat];
+  if (cat) {
+    const hit = bizCategoryLookup ? bizCategoryLookup(cat) : BUSINESS_OF_CATEGORY[cat];
+    if (hit) return hit;
+  }
   return 'ENV';
 }
 

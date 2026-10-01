@@ -5,7 +5,7 @@ import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
 import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
 import { currentDept, categoryOptions } from '../dept.js';
-import { BUSINESS_OPTS, BUSINESS_TO_DEPT, businessLabelOf, businessesForDept } from '../business.js';
+import { businessOptions, deptOf, businessLabelOf, businessesForDept } from '../business.js';
 import { businessOf } from '../stats_utils.js';
 
 const STATUS_OPTS = [
@@ -558,7 +558,7 @@ export default {
         await api.createHazard({
           title: form.title,
           businessType: form.businessType,
-          deptCode: BUSINESS_TO_DEPT[form.businessType] || 'JN',
+          deptCode: deptOf(form.businessType) || 'JN',
           category: form.category,
           severity: form.severity,
           department: form.department,
@@ -660,11 +660,13 @@ export default {
       load();
     });
 
+    // 业务下拉改为动态字典：管理端新增/停用业务后，这里无需重新编译即可看到变化
+    const bizOpts = computed(() => businessOptions());
     // 类别下拉随所选业务级联；切换业务后自动重置为首选项
     const categoryOpts = computed(() => categoryOptions(form.businessType));
 
     return {
-      STATUS_OPTS, SEVERITY_OPTS, BUSINESS_OPTS, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
+      STATUS_OPTS, SEVERITY_OPTS, BUSINESS_OPTS: bizOpts, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
       kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness, bizFilterOpts,
       canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue,
       detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, saving, uploading, exporting, overdueOnly, form,
