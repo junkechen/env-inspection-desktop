@@ -28,7 +28,7 @@ export default {
       </div>
       <div style="text-align:right">
         <div style="color:var(--c-text-soft);font-size:12px">字典更新于 {{ configState.updatedAt ? configState.updatedAt.replace('T',' ').slice(0,19) : '尚未初始化' }}</div>
-        <div style="color:var(--c-text-soft);font-size:12px">业务 {{ activeBusinesses.length }} 项 / 类别 {{ categoryItems.length }} 项</div>
+        <div style="color:var(--c-text-soft);font-size:12px">业务 {{ activeBusinesses.length }} 项 / 类别 {{ catItems.length }} 项</div>
       </div>
     </div>
 

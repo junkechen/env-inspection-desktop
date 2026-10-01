@@ -1,7 +1,7 @@
 {
-  "version": "1.0.21",
-  "exeName": "GZInspection_v1.0.21.exe",
-  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.21.exe",
-  "notes": "动态字典 + 权限收口：管理员可在「配置管理」自行维护业务类型与隐患类别（新增/编辑/停用/删除），云端保存后各端自动生效，无需重新编译；字典维护与账号赋权限定为管理员，前端菜单/路由/页面三重守卫 + 云函数强制二次校验；用户管理支持批量赋权（追加/覆盖）。非管理员仍可正常查看、筛选、使用已有类别。",
+  "version": "1.0.22",
+  "exeName": "GZInspection_v1.0.22.exe",
+  "exeUrl": "https://github.com/junkechen/env-inspection-desktop/releases/latest/download/GZInspection_v1.0.22.exe",
+  "notes": "修复「配置管理」页面渲染出错（模板变量名不一致导致 undefined.length）。",
   "publishedAt": "2026-10-02"
 }
