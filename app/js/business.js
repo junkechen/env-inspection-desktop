@@ -114,3 +114,36 @@ export function businessesForDept(deptCode, user) {
 export function businessOfCategory(name) {
   return bizOfCategoryName(name);
 }
+
+/**
+ * 用户的「可见业务集合」—— v1.0.28 起的数据隔离口径（按业务隔离）：
+ *
+ *   隐患可见 ⇔ 其业务（businessType，缺失按类别反查）∈ visibleBizCodes(user)。
+ *
+ *   1. 管理员 → 全部业务；
+ *   2. 已显式赋权（businessTypes 非空）→ 以赋权为准；
+ *   3. 未赋权 → 按其科室授权（users.deptCodes）派生业务 —— 科室隔离由此自然蕴含
+ *      （业务本就归属科室，没被授权该科室业务的人看不到该科室的数据）；
+ *   4. 连科室也没配的老账号 → 全部业务（存量兼容，不让任何账号突然看不到数据）。
+ *
+ * 注意：右上角科室徽章（currentDept）自 v1.0.28 起**不再参与数据过滤**，
+ * 只决定仪表盘的业务分组视角与默认 tab。此前「徽章 + 科室 + 业务」三层过滤
+ * 叠加导致连续多版「数据查不到」的回归，根因即口径不统一。
+ */
+export function visibleBizCodes(user) {
+  const all = businessCodes();
+  const u = user || {};
+  const admin = u.role === 'admin' || u.username === 'admin' || u.username === 'Administrator';
+  if (admin) return all;
+  const owned = businessInfos(user).map((i) => i.code);
+  if (owned.length) return owned;
+  const depts = Array.isArray(u.deptCodes) ? u.deptCodes.filter(Boolean) : [];
+  if (depts.length) {
+    const dict = activeBusinesses();
+    const derived = dict
+      .filter((b) => depts.indexOf(deptOfBusiness(b.code)) !== -1)
+      .map((b) => b.code);
+    if (derived.length) return derived;
+  }
+  return all;
+}

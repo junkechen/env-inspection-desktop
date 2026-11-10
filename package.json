@@ -1,6 +1,6 @@
 {
   "name": "env-inspection-desktop",
-  "version": "1.0.22",
+  "version": "1.0.33",
   "description": "GZ环保巡查管理系统 - 桌面客户端（Electron 套壳，直连云函数网关，与 APP 共享数据）",
   "main": "main.js",
   "author": "GZ",
@@ -8,6 +8,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win --config",
+    "test": "node --test test/*.test.mjs test/*.test.js",
+    "test:e2e": "node build/_e2e_regression.cjs && node build/_e2e_modules.cjs && node build/_e2e_export.cjs && node build/_e2e_permission.cjs",
     "trim": "node build/trim-electron-locales.cjs"
   },
   "devDependencies": {
@@ -22,6 +24,7 @@
       "main.js",
       "preload.js",
       "static_server.js",
+      "xlsx_inject.js",
       "app/**/*"
     ],
     "electronDist": "node_modules/electron/dist",
@@ -34,7 +37,7 @@
       "target": [
         "portable"
       ],
-      "artifactName": "GZInspection_v1.0.22.exe"
+      "artifactName": "GZInspection_v1.0.33.exe"
     }
   }
 }

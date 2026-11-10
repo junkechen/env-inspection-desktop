@@ -2,6 +2,7 @@ import { api, ROLE_MAP } from '../api.js';
 import { businessOptions, businessCodes, businessNames, UNAUTH_MODE } from '../business.js';
 import { canManageUsers } from '../permission.js';
 import { store } from '../store.js';
+import { activeDepts } from '../config_store.js';
 
 const ROLE_OPTS = Object.entries(ROLE_MAP).map(([value, label]) => ({ value, label }));
 
@@ -90,6 +91,15 @@ export default {
           </el-select>
         </el-form-item>
         <el-form-item label="部门"><el-input v-model="form.department" /></el-form-item>
+        <el-form-item label="归属科室">
+          <el-select v-model="form.deptCodes" multiple style="width:100%" placeholder="未勾选 = 仅默认科室">
+            <el-option v-for="d in DEPT_OPTS" :key="d.value" :label="d.label" :value="d.value" />
+          </el-select>
+          <div style="color:var(--c-text-soft);font-size:12px;margin-top:4px">
+            勾选该用户可切换/查看的科室（数据隔离维度）。在【配置管理】的「科室」页维护。
+            至少勾选一个，否则登录后只会看到默认科室的数据。
+          </div>
+        </el-form-item>
         <el-form-item label="业务类型">
           <el-select v-model="form.businessTypes" multiple style="width:100%" placeholder="未勾选 = 未显式授权">
             <el-option v-for="b in BUSINESS_OPTS" :key="b.value" :label="b.label" :value="b.value" />
@@ -160,12 +170,14 @@ export default {
     const editingId = ref(null);
     // 新建账号默认「不勾选任何业务」—— 字典新增与赋权解耦：
     // 使用权必须由管理员在本页显式授予，不给一堆默认选中制造“谁都能用”的错觉。
-    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
+    const form = reactive({ username: '', name: '', phone: '', role: 'inspector', department: '', deptCodes: [], businessTypes: [], password: '123456' });
 
     function roleLabel(r) { return (ROLE_OPTS.find((x) => x.value === r) || {}).label || r; }
 
     // 业务下拉用动态字典：配置管理里新增的业务会立刻出现在这里
     const bizOpts = computed(() => businessOptions());
+    // 归属科室下拉用动态字典：配置管理里新增的科室会立刻出现在这里
+    const DEPT_OPTS = computed(() => activeDepts().map((d) => ({ value: d.code, label: `${d.name}（${d.code}）` })));
     // 兼容模式提示：UNAUTH_MODE='inherit' 时未勾选的账号仍能继承科室业务，
     // 界面必须把这件事说出来，否则管理员会以为自己已经把权限收住了。
     const unauthInherit = UNAUTH_MODE === 'inherit';
@@ -228,7 +240,7 @@ export default {
 
     function openCreate() {
       editing.value = false; editingId.value = null;
-      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', businessTypes: [], password: '123456' });
+      Object.assign(form, { username: '', name: '', phone: '', role: 'inspector', department: '', deptCodes: [], businessTypes: [], password: '123456' });
       dialogVisible.value = true;
     }
     function openEdit(row) {
@@ -236,7 +248,8 @@ export default {
       // 存量账号若从未设置过业务，这里如实显示为“未勾选”，
       // 由管理员决定是否补授 —— 不能偷偷按全选回填，否则等于静默给权限。
       const bt = Array.isArray(row.businessTypes) ? [...row.businessTypes] : [];
-      Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, businessTypes: bt });
+      const dc = Array.isArray(row.deptCodes) ? [...row.deptCodes] : [];
+      Object.assign(form, { username: row.username, name: row.name, phone: row.phone, role: row.role, department: row.department, deptCodes: dc, businessTypes: bt });
       dialogVisible.value = true;
     }
     async function save() {
@@ -300,7 +313,7 @@ export default {
 
     load();
     return {
-      allowed, UNAUTH_MODE, ROLE_OPTS, BUSINESS_OPTS: bizOpts, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
+      allowed, UNAUTH_MODE, ROLE_OPTS, BUSINESS_OPTS: bizOpts, DEPT_OPTS, list, total, page, size, loading, kw, filterStatus, dialogVisible, editing, saving, form,
       selection, onSelectionChange, batchVisible, batchForm, previewNames, openBatch, applyBatch, unauthInherit,
       roleLabel, businessLabels: businessNames, search, reset, onPage, openCreate, openEdit, save, toggle, approve, resetPwd, remove, onCmd,
       Search, Refresh, Plus, Edit, Delete, Key, ArrowDown

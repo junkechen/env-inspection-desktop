@@ -56,24 +56,27 @@ export function isRelated(user, issue) {
   return isReporter(user, issue) || isAssignee(user, issue);
 }
 
-// 【多科室隔离】角色 + 科室双层过滤
+// 【多科室/业务隔离】角色 + 业务双层过滤
 //
-// 之所以在 filterIssuesByRole 这一个函数里同时套两层，而不是让各页面自己加 dept 过滤：
+// 之所以在 filterIssuesByRole 这一个函数里同时套两层，而不是让各页面自己加过滤：
 //   dashboard（统计/排名）、hazards（列表、导出）共 4 处调用点都走这里，
-//   漏一处就会出现「列表干净、但导出文件里混着对方科室数据」这类事故。
+//   漏一处就会出现「列表干净、但导出文件里混着无权数据」这类事故。
 //
 // ⚠️ 这是**前端兜底**，不是安全边界。真正的边界在云函数
 //    （cloudfunction_security/index.js 的 scopeQuery 强制注入 deptCode）。
-//    这里的作用是在服务端过滤尚未开启（ENFORCE_DEPT_FILTER=false）的过渡期，
-//    保证界面上不出现跨科室混淆。
-import { inCurrentDept } from './dept.js';
+//
+// v1.0.28：隔离口径改为「按业务隔离」（inDeptScope → visibleBizCodes）。
+// 此处曾是 inCurrentDept（按当前科室徽章过滤）——v1.0.25 起外部调用点都改成了
+// 授权口径，唯独漏了这一层，导致「徽章在 JN 时安全业务恒为空、切徽章才能查到」
+// 的诡异现象（v1.0.24~v1.0.27 连续回归的真根因）。
+import { inDeptScope } from './dept.js';
 
-// 按角色 + 科室过滤隐患列表（对齐 APK issues getter）
+// 按角色 + 业务范围过滤隐患列表（对齐 APK issues getter）
 export function filterIssuesByRole(user, issues) {
   const list = Array.isArray(issues) ? issues : [];
-  const scoped = list.filter(i => inCurrentDept(i));
+  const scoped = list.filter(i => inDeptScope(i, user));
   if (isAdmin(user)) return scoped;
-  // 【D-7 修复】只读查看员：按科室可见全部本科室隐患，但不参与整改/验收。
+  // 【D-7 修复】只读查看员：按业务范围可见全部数据，但不参与整改/验收。
   // 原实现直接 return []，导致只读账号形同虚设。
   if (isViewer(user)) return scoped;
   return scoped.filter(i => isRelated(user, i));
@@ -152,6 +155,52 @@ export function canReviewIssue(user, issue) {
 export function canFlow(user, issue) {
   if (isViewer(user)) return false;
   return canStartRectify(user, issue) || canSubmitRectify(user, issue) || canReviewIssue(user, issue);
+}
+
+// ---------- 日常管理模块权限（合理化建议 / 模块考核落实单） ----------
+// 与 APK lib/services/mgmt_permission.dart 同口径。
+// 安环部人员：部门名称含「安环 / 安全环保」，或平台管理员（admin 视为安环部管理岗）。
+export function isSafetyEnvStaff(user) {
+  if (!user) return false;
+  if (isAdmin(user)) return true;
+  const dept = user.department || '';
+  return dept.indexOf('安环') >= 0 || dept.indexOf('安全环保') >= 0;
+}
+// 合理化建议：点赞（全体登录用户，一人一票，可取消）
+export function canLikeSuggestion(user) {
+  return !!(user && (user.isActive !== false));
+}
+// 评分（专家评审组）：安环部 + 督查员 + 管理员
+export function canScoreSuggestion(user) {
+  if (!user) return false;
+  return isSafetyEnvStaff(user) || user.role === 'supervisor';
+}
+// 决议（采纳/未采纳/实施 + 获奖定级）：安环部（含管理员）
+export function canResolveSuggestion(user) {
+  return isSafetyEnvStaff(user);
+}
+// 模块考核落实单：可见 —— 仅安环部人员与被审核人
+export function canViewAssessment(user, a) {
+  if (!user) return false;
+  if (isSafetyEnvStaff(user)) return true;
+  return (user.name || '') === (a && a.auditedPerson);
+}
+// 发起落实单：安环部人员
+export function canCreateAssessment(user) { return isSafetyEnvStaff(user); }
+// 签字确认（受审核部门认可意见）：被审核人本人
+export function canSignAssessment(user, a) {
+  if (!user || (a && a.isSigned)) return false;
+  return (user.name || '') === (a && a.auditedPerson);
+}
+// 填写纠正措施：被审核人 或 安环部
+export function canFillCorrective(user, a) {
+  if (!user || (a && a.isClosed)) return false;
+  return isSafetyEnvStaff(user) || (user.name || '') === (a && a.auditedPerson);
+}
+// 审核员意见 / 闭环：安环部 或 审核员本人
+export function canReviewAssessment(user, a) {
+  if (!user || (a && a.isClosed)) return false;
+  return isSafetyEnvStaff(user) || (user.name || '') === (a && a.auditor);
 }
 
 // ---------- 消息可见性（dashboard 最新消息，按当前用户过滤） ----------

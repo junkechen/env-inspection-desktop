@@ -1,11 +1,11 @@
 import { api, STATUS_MAP, SEVERITY_MAP, ROLE_MAP } from '../api.js';
 import { store } from '../store.js';
-import { buildExcelWorkbook, buildPdfHtml } from '../export_utils.js';
+import { buildExcelWorkbook, buildPdfHtml, collectExportPhotoUrls, fetchPhotoThumbnails } from '../export_utils.js';
 import { resolveIssuePhotos, resolveIssuesPhotos } from '../image_utils.js';
 import { uploadFiles } from '../image_upload.js';
-import { isAdmin, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
-import { currentDept, categoryOptions } from '../dept.js';
-import { businessOptions, deptOf, businessLabelOf, businessesForDept } from '../business.js';
+import { isAdmin, isViewer, isReporter, filterIssuesByRole, canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue } from '../permission.js';
+import { currentDept, categoryOptions, inDeptScope } from '../dept.js';
+import { businessOptions, deptOf, businessLabelOf, businessesForDept, visibleBizCodes } from '../business.js';
 import { businessOf } from '../stats_utils.js';
 
 const STATUS_OPTS = [
@@ -89,9 +89,12 @@ export default {
         <el-table-column label="期限" width="105">
           <template #default="{row}">{{ (row.dueDate||row.deadline||'').slice(0,10) || '—' }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{row}">
             <el-button text type="primary" :icon="View" @click="openDetail(row)">详情</el-button>
+            <el-button v-if="canModify(me, row)" text type="info" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="canModify(me, row)" text type="warning" :icon="Switch" @click="openReassign(row)">重新指派</el-button>
+            <el-button v-if="canRecall(me, row)" text type="danger" :icon="Delete" @click="recall(row)">撤回</el-button>
             <el-button v-if="canStartRectify(me, row)" text type="success" @click="startRectify(row)">开始整改</el-button>
             <el-button v-if="canSubmitRectify(me, row)" text type="primary" @click="openFeedback(row)">提交反馈</el-button>
             <el-button v-if="canUrgeIssue(me, row)" text type="warning" :icon="Bell" @click="openRemind(row)">催办</el-button>
@@ -238,15 +241,33 @@ export default {
       </template>
     </el-dialog>
 
-    <!-- 新增 -->
-    <el-dialog v-model="createVisible" title="新增隐患" width="620px" :close-on-click-modal="false">
+    <!-- 重新指派 -->
+    <el-dialog v-model="reassignVisible" title="重新指派整改人" width="480px" :close-on-click-modal="false">
+      <el-form label-width="100px">
+        <el-form-item label="当前责任人"><span>{{ reassignTarget.assigneeName || '—' }}</span></el-form-item>
+        <el-form-item label="新整改人" required>
+          <el-select v-model="reassignId" style="width:100%" @change="onReassignChange" filterable>
+            <el-option v-for="u in rectifiers" :key="u._id" :label="u.name + ' ('+ (u.department||'未分配') +')'" :value="u._id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="reassignVisible=false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="reassign">确认指派</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 新增/编辑 -->
+    <el-dialog v-model="createVisible" :title="editId ? '编辑隐患' : '新增隐患'" width="620px" :close-on-click-modal="false">
       <el-form :model="form" label-width="100px">
         <el-form-item label="标题" required><el-input v-model="form.title" placeholder="简短标题" /></el-form-item>
         <el-form-item label="业务" required>
-          <el-select v-model="form.businessType" style="width:100%" @change="onBusinessChange" :disabled="singleBusiness">
-            <el-option v-for="o in BUSINESS_OPTS" :key="o.value" :label="o.label" :value="o.value" />
+          <!-- 业务选项按「当前账号可见业务集合」收敛（visibleBizCodes）：
+               只有安全权限的账号，下拉里就只有「安全业务」，无法误选节能/环保。
+               v1.0.29 曾误用全量 BUSINESS_OPTS 导致单业务账号能越权选择，v1.0.30 修正。 -->
+          <el-select v-model="form.businessType" style="width:100%" @change="onBusinessChange">
+            <el-option v-for="o in bizCreateOpts" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
-          <div v-if="singleBusiness" style="color:var(--c-text-soft);font-size:12px;margin-top:4px">当前账号仅归属{{ businessLabelOf(form.businessType) }}，已自动采用</div>
         </el-form-item>
         <el-form-item label="类别" required>
           <el-select v-model="form.category" style="width:100%"><el-option v-for="o in CATEGORY_OPTS" :key="o" :label="o" :value="o" /></el-select>
@@ -284,10 +305,25 @@ export default {
   setup() {
     const { ref, reactive, onMounted, watch, computed } = Vue;
     const { ElMessage } = ElementPlus;
-    const { Search, Refresh, Plus, View, Bell, Download, Printer, ArrowLeft } = ElementPlusIconsVue;
+    const { Search, Refresh, Plus, View, Bell, Download, Printer, ArrowLeft, Edit, Switch, Delete } = ElementPlusIconsVue;
 
     // 当前登录用户（权限判断用）
     const me = computed(() => store.user || {});
+
+    // 可编辑/撤回：发起人( reporter )或管理员，且处于待处理/整改中（对齐 APK 撤回与编辑口径）
+    function canModify(user, issue) {
+      if (!issue) return false;
+      if (isViewer(user)) return false;
+      const ok = isAdmin(user) || isReporter(user, issue);
+      return ok && (issue.status === 'pending' || issue.status === 'processing');
+    }
+    // 撤回（软删除）：与 canModify 同口径，发起人/管理员在流程早期可撤回
+    function canRecall(user, issue) {
+      if (!issue) return false;
+      if (isViewer(user)) return false;
+      const ok = isAdmin(user) || isReporter(user, issue);
+      return ok && (issue.status === 'pending' || issue.status === 'processing');
+    }
 
     const list = ref([]);
     const total = ref(0);
@@ -314,6 +350,10 @@ export default {
     const feedbackTarget = ref(null);
     const feedbackPhotos = ref([]);
     const createVisible = ref(false);
+    const editId = ref(null);
+    const reassignVisible = ref(false);
+    const reassignTarget = ref(null);
+    const reassignId = ref('');
     const saving = ref(false);
     const uploading = ref(false);
     const exporting = ref(false);
@@ -326,10 +366,19 @@ export default {
       return bs.length === 1 ? bs[0] : '';
     });
 
-    // 工具栏“业务”筛选下拉：按当前科室取可见业务（科室隔离），再与账号 businessTypes 取交集。
-    // 单业务时长度=1，模板中 v-if 隐藏该选择框。切换科室整页 reload 后按新科室重算。
+    // 工具栏“业务”筛选下拉：v1.0.28 起按「用户可见业务集合」取值（与列表数据
+    // 的隔离口径 visibleBizCodes 完全一致），不再按科室徽章收敛 —— 否则会出现
+    // 「徽章在 JN 时能选安全业务却查不到数据」的错位。
+    // 单业务时长度=1，模板中 v-if 隐藏该选择框。
     const bizFilterOpts = computed(() => {
-      return businessesForDept(currentDept(), store.user).map(i => ({ value: i.code, label: i.name }));
+      return visibleBizCodes(store.user).map(code => ({ value: code, label: businessLabelOf(code) }));
+    });
+
+    // 新增隐患弹窗的“业务”下拉：与工具栏筛选同一口径（visibleBizCodes），
+    // 保证「能看到的业务」与「能填报的业务」一致 —— 只有安全权限的账号只能填安全业务。
+    const bizCreateOpts = computed(() => {
+      const opts = visibleBizCodes(store.user).map(code => ({ value: code, label: businessLabelOf(code) }));
+      return opts.length ? opts : businessOptions();
     });
 
     // 单业务账号自动采用；多业务默认取当前科室下第一个可见业务（与仪表盘一致）
@@ -348,9 +397,10 @@ export default {
       if (feedbackVisible.value) { feedbackVisible.value = false; return true; }
       if (createVisible.value) { createVisible.value = false; return true; }
       if (remindVisible.value) { remindVisible.value = false; return true; }
+      if (reassignVisible.value) { reassignVisible.value = false; return true; }
       return false;
     }
-    watch([detailVisible, feedbackVisible, createVisible, remindVisible], (vals) => {
+    watch([detailVisible, feedbackVisible, createVisible, remindVisible, reassignVisible], (vals) => {
       store.backHandler = vals.some(v => v) ? closeTopDialog : null;
     });
 
@@ -361,28 +411,25 @@ export default {
       loading.value = true;
       try {
         const user = store.user;
-        // 非管理员只能看到“自己发起 + 分配给自己的”问题（对齐 APK），必须拉全量本地过滤；
-        // 管理员仅在“已逾期”筛选时走本地（逾期是前端派生状态）。
-        const needLocal = !isAdmin(user) || overdueOnly.value;
-        let data, totalCount;
-        if (needLocal) {
-          const r = await api.hazards({ status: '', department: filterDept.value, category: '', keyword: kw.value, page: 1, size: 0 });
-          let all = filterIssuesByRole(user, r.list || []);
-          if (overdueOnly.value) all = all.filter(isOverdue);
-          if (filterStatus.value) all = all.filter(h => h.status === filterStatus.value);
-          if (filterBusiness.value) all = all.filter(h => (h.businessType || 'ENV') === filterBusiness.value);
-          if (filterSeverity.value) all = all.filter(h => h.severity === filterSeverity.value);
-          totalCount = all.length;
-          const start = (page.value - 1) * size.value;
-          data = all.slice(start, start + size.value);
-        } else {
-          const r = await api.hazards({ status: filterStatus.value, department: filterDept.value, category: '', keyword: kw.value, page: page.value, size: size.value });
-          data = r.list;
-          totalCount = r.total;
-          if (filterBusiness.value) data = data.filter(h => (h.businessType || 'ENV') === filterBusiness.value);
-          if (filterSeverity.value) data = data.filter(h => h.severity === filterSeverity.value);
-        }
-        list.value = data; total.value = totalCount;
+        // 数据隔离（v1.0.28 起按业务隔离）：inDeptScope = 隐患业务 ∈ 用户可见业务集合
+        // （business.js visibleBizCodes：admin 全部 / 显式赋权 / deptCodes 派生 / 存量全部）。
+        // 科室徽章不再参与数据过滤，只影响仪表盘分组与默认 tab ——
+        // 此前徽章参与过滤导致 v1.0.24~v1.0.27 连续「数据查不到」回归。
+        const inDept = (h) => inDeptScope(h, user);
+        // 非管理员只能看到“自己发起 + 分配给自己的”问题（对齐 APK），必须拉全量本地过滤。
+        // 统一走「全量拉取 + 本地过滤 + 本地分页」：科室隔离、角色、业务、等级、状态、
+        // 逾期都是客户端维度，若叠加在服务端分页结果上，稀疏数据（如全库仅 1 条安全
+        // 业务、排在第 1 页之外）会被滤成恒为空（v1.0.25 回归：安全业务查不到）。
+        // 当前数据量（数百条）下全量拉取开销可接受。
+        const r = await api.hazards({ status: '', department: filterDept.value, category: '', keyword: kw.value, page: 1, size: 0 });
+        let all = filterIssuesByRole(user, r.list || []).filter(inDept);
+        if (overdueOnly.value) all = all.filter(isOverdue);
+        if (filterStatus.value) all = all.filter(h => h.status === filterStatus.value);
+        if (filterBusiness.value) all = all.filter(h => businessOf(h) === filterBusiness.value);
+        if (filterSeverity.value) all = all.filter(h => h.severity === filterSeverity.value);
+        const start = (page.value - 1) * size.value;
+        list.value = all.slice(start, start + size.value);
+        total.value = all.length;
       } finally { loading.value = false; }
     }
     function search() { page.value = 1; load(); }
@@ -534,11 +581,33 @@ export default {
       finally { saving.value = false; }
     }
     function openCreate() {
-      const me = store.user || {};
-      // 默认业务跟随当前科室（科室隔离），避免节能环保科下默认新增出安全业务隐患
-      const deptBiz = businessesForDept(currentDept(), me);
-      const biz = singleBusiness.value || (deptBiz[0] ? deptBiz[0].code : 'SAFE');
+      // 默认业务：单业务账号直接用其唯一业务；多业务账号取当前科室下第一个「有权限」的业务。
+      // 注意必须与 bizCreateOpts 同一口径，否则默认项可能落在下拉之外（v1.0.30 修正）。
+      const allowed = bizCreateOpts.value.map(o => o.value);
+      const deptBiz = businessesForDept(currentDept(), store.user || {}).filter(b => allowed.indexOf(b.code) !== -1);
+      const biz = singleBusiness.value || (deptBiz[0] ? deptBiz[0].code : (allowed[0] || 'SAFE'));
       Object.assign(form, { title: '', businessType: biz, category: (categoryOptions(biz)[0] || '其他'), severity: 'general', department: depts.value[0]?.name || '', location: '', assigneeId: '', assigneeName: '', dueDate: '', description: '', photos: [] });
+      editId.value = null;
+      createVisible.value = true;
+    }
+    // 编辑：复用新增表单，回填记录字段（类别/严重程度/期限/位置等）
+    function openEdit(row) {
+      const h = row;
+      const biz = h.businessType || singleBusiness.value || (bizFilterOpts.value[0] ? bizFilterOpts.value[0].value : 'SAFE');
+      Object.assign(form, {
+        title: h.title || '',
+        businessType: biz,
+        category: h.category || '其他',
+        severity: h.severity || 'general',
+        department: h.department || '',
+        location: h.location || '',
+        assigneeId: h.assigneeId || '',
+        assigneeName: h.assigneeName || '',
+        dueDate: (h.dueDate || h.deadline || '').slice(0, 10) || '',
+        description: h.description || '',
+        photos: Array.isArray(h.photos) ? h.photos.slice() : []
+      });
+      editId.value = h._id || h.id;
       createVisible.value = true;
     }
     // 切换业务 → 类别下拉级联重置为该项业务的首个类别
@@ -552,32 +621,110 @@ export default {
     }
     async function create() {
       if (!form.title || !form.department || !form.description || !form.assigneeId) { ElMessage.warning('请填写标题、部门、责任人和描述'); return; }
+      // 兜底：业务必须在当前账号权限内（防止管理员在后台改权限后弹窗仍留旧值）
+      const allowedCodes = bizCreateOpts.value.map(o => o.value);
+      if (allowedCodes.length && allowedCodes.indexOf(form.businessType) === -1) {
+        ElMessage.warning('所选业务不在您的权限范围内，请重新选择');
+        return;
+      }
       saving.value = true;
       try {
         const me = store.user || {};
-        await api.createHazard({
-          title: form.title,
-          businessType: form.businessType,
-          deptCode: deptOf(form.businessType) || 'JN',
-          category: form.category,
-          severity: form.severity,
-          department: form.department,
-          location: form.location,
-          assigneeId: form.assigneeId,
-          assigneeName: form.assigneeName,
-          reporterId: me._id || '',
-          reporterName: me.name || me.username || '',
-          dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : '',
-          deadline: form.dueDate ? new Date(form.dueDate).toISOString() : '',
-          description: form.description,
+        if (editId.value) {
+          // 编辑模式：仅更新可改字段，并回填业务/科室（历史隐患可能缺这俩字段）
+          await api.updateHazard(editId.value, {
+            title: form.title,
+            category: form.category,
+            severity: form.severity,
+            department: form.department,
+            location: form.location,
+            businessType: form.businessType,
+            deptCode: deptOf(form.businessType) || 'JN',
+            dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : '',
+            deadline: form.dueDate ? new Date(form.dueDate).toISOString() : '',
+            description: form.description,
+            photos: form.photos || [],
+            updatedAt: new Date().toISOString()
+          });
+          ElMessage.success('隐患已更新');
+        } else {
+          await api.createHazard({
+            title: form.title,
+            businessType: form.businessType,
+            deptCode: deptOf(form.businessType) || 'JN',
+            category: form.category,
+            severity: form.severity,
+            department: form.department,
+            location: form.location,
+            assigneeId: form.assigneeId,
+            assigneeName: form.assigneeName,
+            reporterId: me._id || '',
+            reporterName: me.name || me.username || '',
+            dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : '',
+            deadline: form.dueDate ? new Date(form.dueDate).toISOString() : '',
+            description: form.description,
+            status: 'pending',
+            photos: form.photos || [],
+            rectificationPhotos: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+          ElMessage.success('已新增隐患');
+        }
+        createVisible.value = false;
+        load();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { saving.value = false; }
+    }
+    // 重新指派整改人：换人后状态重置为 pending（对齐 APK updateAssignee），让新整改人能在「待反馈」看到
+    function openReassign(row) {
+      reassignTarget.value = row;
+      reassignId.value = '';
+      reassignVisible.value = true;
+    }
+    function onReassignChange(id) {
+      const u = rectifiers.value.find(x => x._id === id);
+      reassignId.value = id;
+    }
+    async function reassign() {
+      if (!reassignId.value) { ElMessage.warning('请选择新整改人'); return; }
+      const u = rectifiers.value.find(x => x._id === reassignId.value);
+      if (!u) return;
+      saving.value = true;
+      try {
+        const id = reassignTarget.value._id || reassignTarget.value.id;
+        await api.updateHazard(id, {
+          assigneeId: u._id,
+          assigneeName: u.name,
           status: 'pending',
-          photos: form.photos || [],
-          rectificationPhotos: [],
-          createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         });
-        ElMessage.success('已新增隐患');
-        createVisible.value = false;
+        ElMessage.success('已重新指派给 ' + u.name);
+        reassignVisible.value = false;
+        load();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { saving.value = false; }
+    }
+    // 撤回隐患：发起人/管理员在流程早期软删（status:'deleted', isDeleted:true），对齐 APK recallIssue
+    async function recall(row) {
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '撤回后该隐患将从列表移除（软删除，可在云端恢复）。确定撤回吗？',
+          '撤回隐患',
+          { type: 'warning', confirmButtonText: '确定撤回', cancelButtonText: '取消' }
+        );
+      } catch (e) { return; }
+      saving.value = true;
+      try {
+        const id = row._id || row.id;
+        await api.updateHazard(id, {
+          status: 'deleted',
+          isDeleted: true,
+          deletedAt: new Date().toISOString(),
+          deletedBy: (store.user && (store.user.name || store.user.username)) || '',
+          updatedAt: new Date().toISOString()
+        });
+        ElMessage.success('隐患已撤回');
         load();
       } catch (e) { ElMessage.error(e.message); }
       finally { saving.value = false; }
@@ -604,7 +751,10 @@ export default {
         status: filterStatus.value, department: filterDept.value,
         severity: filterSeverity.value, keyword: kw.value
       });
-      return filterIssuesByRole(store.user, r.list || []);
+      let issues = filterIssuesByRole(store.user, r.list || []).filter((h) => inDeptScope(h, store.user));
+      // 业务筛选与页面列表同口径（businessOf），保证「导出 = 所见」：选安全只导安全，不混入节能/环保
+      if (filterBusiness.value) issues = issues.filter((h) => businessOf(h) === filterBusiness.value);
+      return issues;
     }
     async function exportExcel() {
       if (!window.XLSX) { ElMessage.error('Excel 组件未加载，请重启客户端'); return; }
@@ -615,12 +765,36 @@ export default {
         if (!issues.length) { ElMessage.warning('当前筛选无数据可导出'); return; }
         // 先把所有 cloud:// 照片刷新为临时 HTTPS URL，避免 Excel 里出现“链接失效”
         await resolveIssuesPhotos(issues);
-        const meta = { period: buildPeriod(), exportUser: (store.user && (store.user.name || store.user.username)) || '管理员', generatedAt: new Date().toISOString() };
+
+        // 下载并缩放隐患/整改照片（并发 4，单张失败只显示“无图片”，不中断导出）
+        const urls = collectExportPhotoUrls(issues);
+        let photoStore = new Map();
+        if (urls.length && typeof window.electronAPI.fetchImageUrl === 'function') {
+          photoStore = await fetchPhotoThumbnails(urls, {
+            fetchImage: (p) => window.electronAPI.fetchImageUrl(p),
+            concurrency: 4, maxPx: 120, timeoutMs: 20000
+          });
+        }
+
+        const meta = {
+          period: buildPeriod(),
+          exportUser: (store.user && (store.user.name || store.user.username)) || '管理员',
+          generatedAt: new Date().toISOString(),
+          photoStore
+        };
         const wb = buildExcelWorkbook(window.XLSX, issues, meta);
-        const buf = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        const res = await window.electronAPI.saveBuffer({ ext: 'xlsx', defaultName: 'GZ巡查整改台账_' + ts() + '.xlsx', buffer: buf });
+        // base64 传递，避免大数组在 IPC 结构化克隆时的兼容问题
+        const b64 = window.XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+        const res = await window.electronAPI.saveXlsxEnhanced({
+          defaultName: 'GZ巡查整改台账_' + ts() + '.xlsx',
+          buffer: b64,
+          plan: wb.__ledgerPlan || {}
+        });
         if (res && res.error) ElMessage.error('导出失败：' + res.error);
-        else if (res && !res.canceled) ElMessage.success('Excel 已保存：' + res.filePath);
+        else if (res && !res.canceled) {
+          const n = ((wb.__ledgerPlan || {}).media || []).length;
+          ElMessage.success(n ? `Excel 已保存：${res.filePath}（内嵌图片 ${n} 张）` : 'Excel 已保存：' + res.filePath);
+        }
       } catch (e) { ElMessage.error(e.message || '导出失败'); }
       finally { exporting.value = false; }
     }
@@ -667,13 +841,14 @@ export default {
 
     return {
       STATUS_OPTS, SEVERITY_OPTS, BUSINESS_OPTS: bizOpts, CATEGORY_OPTS: categoryOpts, STATUS_MAP, SEVERITY_MAP, ROLE_MAP, list, total, page, size, loading,
-      kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness, bizFilterOpts,
-      canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue,
-      detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, saving, uploading, exporting, overdueOnly, form,
-      search, reset, onPage, onSize, openDetail, startRectify, submitRectify, reviewIssue, onFeedbackUpload, onDetailFeedbackUpload, removeFeedbackPhoto, openFeedback, onCreateUpload, openRemind, sendRemind, openCreate, create,
+      kw, filterStatus, filterBusiness, filterDept, filterSeverity, depts, rectifiers, me, singleBusiness, bizFilterOpts, bizCreateOpts,
+      canCreate, canUrgeIssue, canStartRectify, canSubmitRectify, canReviewIssue, canModify, canRecall,
+      detailVisible, current, newStatus, rectifyNote, remindVisible, remindContent, feedbackVisible, feedbackPhotos, createVisible, editId, saving, uploading, exporting, overdueOnly, form,
+      reassignVisible, reassignTarget, reassignId,
+      search, reset, onPage, onSize, openDetail, startRectify, submitRectify, reviewIssue, onFeedbackUpload, onDetailFeedbackUpload, removeFeedbackPhoto, openFeedback, onCreateUpload, openRemind, sendRemind, openCreate, openEdit, create, recall, openReassign, onReassignChange, reassign,
       exportExcel, exportPdf,
       onBusinessChange, onAssigneeChange, statusClass, severityClass, fmtDate, businessLabelOf,
-      Search, Refresh, Plus, View, Bell, Download, Printer, ArrowLeft
+      Search, Refresh, Plus, View, Bell, Download, Printer, ArrowLeft, Edit, Switch, Delete
     };
   }
 };

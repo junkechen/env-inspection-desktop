@@ -17,6 +17,12 @@ export const BUILTIN_BUSINESS_TYPES = [
   { code: 'ENV', name: '环保业务', short: '环保', color: '#38bdf8', icon: '♻' }
 ];
 
+/** 内置科室（数据隔离维度），与 dept.js 动态字典的初始值一致；云端有 depts 配置后以云端为准 */
+export const BUILTIN_DEPTS = [
+  { code: 'JN', name: '节能环保科', short: '节能环保', color: '#2e9e5b', icon: '🌿', enabled: true, sort: 1 },
+  { code: 'AQ', name: '安全科', short: '安全', color: '#e8823c', icon: '⚠', enabled: true, sort: 2 }
+];
+
 /** 业务 → 科室（数据隔离维度），与 dept.js 的 DEPTS.code 对应 */
 export const BUILTIN_BUSINESS_TO_DEPT = {
   SAFE: 'AQ',
@@ -64,6 +70,19 @@ export function builtinBusinessItems() {
     dept: BUILTIN_BUSINESS_TO_DEPT[b.code] || 'JN',
     enabled: true,
     sort: i + 1
+  }));
+}
+
+/** 内置科室 → appConfig items 结构（播种用） */
+export function builtinDeptItems() {
+  return BUILTIN_DEPTS.map((d) => ({
+    code: d.code,
+    name: d.name,
+    short: d.short,
+    color: d.color,
+    icon: d.icon,
+    enabled: d.enabled !== false,
+    sort: d.sort || 0
   }));
 }
 

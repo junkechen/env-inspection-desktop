@@ -95,6 +95,28 @@ function rootIdentifiers(expr) {
   return ids;
 }
 
+// 去掉 CSS 自定义属性引用：var(--c-text-soft) 里的 c 不是 JS 变量
+function stripCssVars(expr) {
+  return expr.replace(/var\(\s*--[A-Za-z0-9_-]+\s*\)/g, 'VAR');
+}
+
+// 提取箭头函数的形参名（如 map(x => x.url) 中的 x、(c) => onCmd(c,row) 中的 c），
+// 这些是局部变量，不需要 setup 暴露。
+function extractArrowLocals(tpl) {
+  const locals = new Set();
+  // 括号形参：(a, b) => ...
+  const paren = /\(\s*([A-Za-z_$][\w$]*)\s*(?:,\s*([A-Za-z_$][\w$]*)\s*)?\)\s*=>/g;
+  let m;
+  while ((m = paren.exec(tpl))) {
+    if (m[1]) locals.add(m[1]);
+    if (m[2]) locals.add(m[2]);
+  }
+  // 单形参：x => ...
+  const single = /(?:^|[^.\w$])([A-Za-z_$][\w$]*)\s*=>/g;
+  while ((m = single.exec(tpl))) locals.add(m[1]);
+  return locals;
+}
+
 // 提取 v-for 的局部变量（如 (v,k) in CATEGORY_MAP 里的 v、k），这些不需要 setup 暴露
 function extractForLocals(tpl) {
   const locals = new Set();
@@ -137,11 +159,11 @@ function assertTemplateBindings(name, mod) {
 
   const returned = mod.setup() || {};
   const keys = new Set(Object.keys(returned));
-  const locals = new Set([...extractForLocals(tpl), ...extractSlotLocals(tpl)]);
+  const locals = new Set([...extractForLocals(tpl), ...extractSlotLocals(tpl), ...extractArrowLocals(tpl)]);
   const missing = new Set();
 
   for (const expr of extractExpressions(tpl)) {
-    for (const id of rootIdentifiers(stripObjectKeys(expr))) {
+    for (const id of rootIdentifiers(stripObjectKeys(stripCssVars(expr)))) {
       if (RESERVED.has(id) || locals.has(id)) continue;
       if (keys.has(id)) continue;
       missing.add(id);
@@ -162,7 +184,10 @@ const views = [
   ['隐患管理 hazards', '../app/js/views/hazards.js'],
   ['消息催办 messages', '../app/js/views/messages.js'],
   ['用户管理 users', '../app/js/views/users.js'],
-  ['部门 departments', '../app/js/views/departments.js']
+  ['部门 departments', '../app/js/views/departments.js'],
+  ['合理化建议 suggestions', '../app/js/views/suggestions.js'],
+  ['AI隐患识别 ai_hazard', '../app/js/views/ai_hazard.js'],
+  ['模块考核落实单 assessments', '../app/js/views/assessments.js']
 ];
 
 for (const [label, path] of views) {

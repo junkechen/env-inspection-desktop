@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 返回 { canceled, filePath } 或 { error }
   saveBuffer: (payload) => ipcRenderer.invoke('app:save-buffer', payload),
 
+  // 保存 xlsx 并在主进程做排版增强 + 图片内嵌注入。
+  // payload: { defaultName, buffer, plan }；注入失败时自动退回原始 xlsx，保证一定有文件产出。
+  saveXlsxEnhanced: (payload) => ipcRenderer.invoke('app:save-xlsx-enhanced', payload),
+
   // 由 HTML 字符串生成 PDF 并保存。payload: { defaultName, html, landscape }
   // 返回 { canceled, filePath } 或 { error }
   exportPdf: (payload) => ipcRenderer.invoke('app:export-pdf', payload),

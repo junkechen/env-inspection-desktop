@@ -50,7 +50,7 @@ ok('isRelated(viewer)=false（无条件）', isRelated(viewer, issues[0]) === fa
 
 console.log('— 列表过滤 —');
 ok('admin 看全部', filterIssuesByRole(admin, issues).length === 4);
-ok('viewer 空列表', filterIssuesByRole(viewer, issues).length === 0);
+ok('viewer 按业务范围可见全部、但无操作权（D-7 修复 / v1.0.28 业务隔离口径）', filterIssuesByRole(viewer, issues).length === 4);
 ok('inspector 只看相关（2条，不含 assigneeName 撞车）', filterIssuesByRole(inspector, issues).map(i => i._id).sort().join(',') === 'h1,h2');
 ok('stranger 看不到任何（0条）', filterIssuesByRole(stranger, issues).length === 0);
 ok('rectifier 是 h2/h3/h4 的整改人（3条，含撞车那条因为 assigneeId=u_r1）', filterIssuesByRole(rectifier, issues).length === 3);

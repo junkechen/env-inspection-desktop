@@ -16,6 +16,8 @@ const https = require('https');
 const http = require('http');
 const { app, BrowserWindow, dialog, ipcMain, session, shell } = require('electron');
 const { startStaticServer } = require('./static_server');
+// xlsx 排版增强 + 图片内嵌注入（纯 Node zlib 实现，无第三方依赖）
+const { enhanceXlsx } = require('./xlsx_inject');
 
 const APP_ROOT = path.join(__dirname, 'app');
 
@@ -178,6 +180,40 @@ ipcMain.handle('app:save-buffer', async (_event, { ext, defaultName, buffer }) =
     return { canceled: false, filePath };
   } catch (e) {
     log('EXPORT', `save-buffer error: ${e && e.message}`);
+    return { error: e && e.message ? e.message : String(e) };
+  }
+});
+
+// 保存 xlsx 并在落盘前做「排版 + 内嵌图片」增强注入。
+// 之所以放在主进程：SheetJS 社区版不支持写样式/冻结/打印区域/图片，而 ZIP 重组
+// 需要 Node 的 zlib（渲染进程 contextIsolation，拿不到 Node）。
+// payload: { defaultName, buffer, plan } —— buffer 是 SheetJS 产出的原始 xlsx。
+ipcMain.handle('app:save-xlsx-enhanced', async (_event, { defaultName, buffer, plan }) => {
+  try {
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: '保存台账',
+      defaultPath: defaultName || 'export.xlsx',
+      filters: [{ name: 'Excel 文件', extensions: ['xlsx'] }]
+    });
+    if (canceled || !filePath) return { canceled: true };
+    // 渲染进程传来的可能是 base64 字符串、Uint8Array 或普通数组
+    const src = typeof buffer === 'string' ? Buffer.from(buffer, 'base64')
+      : Array.isArray(buffer) ? Buffer.from(buffer)
+        : Buffer.from(buffer || []);
+    let out = src;
+    try {
+      out = enhanceXlsx(src, plan || {});
+      log('EXPORT', `xlsx enhanced: ${src.length} -> ${out.length} bytes, images=${((plan || {}).media || []).length}`);
+    } catch (e) {
+      // 注入失败绝不能让用户拿不到文件：退回原始 xlsx（数据完整，只是没有排版与图片）
+      log('EXPORT', `xlsx enhance failed, fallback raw: ${e && e.message}`);
+      out = src;
+    }
+    fs.writeFileSync(filePath, out);
+    log('EXPORT', `saved enhanced xlsx -> ${filePath} (${out.length} bytes)`);
+    return { canceled: false, filePath, enhanced: out !== src };
+  } catch (e) {
+    log('EXPORT', `save-xlsx-enhanced error: ${e && e.message}`);
     return { error: e && e.message ? e.message : String(e) };
   }
 });

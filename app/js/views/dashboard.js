@@ -6,7 +6,7 @@ import { computeStats, businessOf } from '../stats_utils.js';
 import { businessOptions, businessLabelOf, businessesForDept } from '../business.js';
 import { resolveIssuePhotos, resolveHtmlImages } from '../image_utils.js';
 import { visibleAnnouncements, sanitizeHtml, matchTargetDept, CATEGORY_MAP as ANN_CATEGORY_MAP } from '../announcement.js';
-import { currentDept } from '../dept.js';
+import { currentDept, inDeptScope } from '../dept.js';
 import { onUpdate, cachedAt } from '../cache.js';
 import { fetchLatest, promptAndUpdate, silentStartupCheck } from '../update.js';
 
@@ -98,6 +98,32 @@ export default {
         <el-radio-button v-for="b in bizList" :key="b.code" :label="b.code">{{ b.name }}</el-radio-button>
       </el-radio-group>
       <span style="color:var(--c-text-soft);font-size:12px">当前：{{ businessLabelOf(filterBiz) }}</span>
+    </div>
+
+    <!-- 统计周期（自定义时间范围：全部 / 本周 / 本月 / 本季度 / 本年 / 自定义起止日期） -->
+    <div class="card section" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;margin-bottom:16px">
+      <span style="color:var(--c-text-soft);font-size:13px">统计周期</span>
+      <el-radio-group v-model="timeRange" size="small" @change="applyTime">
+        <el-radio-button label="all">全部</el-radio-button>
+        <el-radio-button label="week">本周</el-radio-button>
+        <el-radio-button label="month">本月</el-radio-button>
+        <el-radio-button label="quarter">本季度</el-radio-button>
+        <el-radio-button label="year">本年</el-radio-button>
+        <el-radio-button label="custom">自定义</el-radio-button>
+      </el-radio-group>
+      <el-date-picker
+        v-if="timeRange === 'custom'"
+        v-model="customRange"
+        type="daterange"
+        size="small"
+        value-format="YYYY-MM-DD"
+        range-separator="至"
+        start-placeholder="开始日期"
+        end-placeholder="结束日期"
+        :clearable="false"
+        @change="applyTime"
+        style="width:240px" />
+      <span v-if="timeRange !== 'all'" style="color:var(--c-accent);font-size:12px">已按「{{ timeLabel }}」筛选</span>
     </div>
 
     <!-- 顶部 6 张数据卡片 -->
@@ -425,10 +451,49 @@ export default {
     });
     let allHazards = [];
     function bizFiltered() { return allHazards.filter(h => businessOf(h) === filterBiz.value); }
+
+    // 统计周期：根据所选范围计算 [起始, 结束] 时间戳（含当天 23:59:59）。
+    // 「全部」返回 null，表示不做时间过滤（与旧版行为一致）。
+    // 周=近7天、月=近30天、季度=近3个月、年=近12个月，对齐手机端统计页口径。
+    const timeRange = ref('all');
+    const customRange = ref([]);
+    const timeLabel = ref('');
+    let currentRange = null;
+    function computeRange() {
+      const now = new Date();
+      if (timeRange.value === 'all') { currentRange = null; timeLabel.value = ''; return; }
+      const startOf = () => { const d = new Date(now); d.setHours(0, 0, 0, 0); return d; };
+      if (timeRange.value === 'week') { const s = startOf(); s.setDate(s.getDate() - 6); currentRange = [s, now]; timeLabel.value = '本周（近 7 天）'; return; }
+      if (timeRange.value === 'month') { const s = startOf(); s.setDate(s.getDate() - 29); currentRange = [s, now]; timeLabel.value = '本月（近 30 天）'; return; }
+      if (timeRange.value === 'quarter') { const s = startOf(); s.setMonth(s.getMonth() - 2); currentRange = [s, now]; timeLabel.value = '本季度（近 3 个月）'; return; }
+      if (timeRange.value === 'year') { const s = startOf(); s.setMonth(s.getMonth() - 11); currentRange = [s, now]; timeLabel.value = '本年（近 12 个月）'; return; }
+      if (timeRange.value === 'custom') {
+        if (customRange.value && customRange.value.length === 2) {
+          const s = new Date(customRange.value[0]); s.setHours(0, 0, 0, 0);
+          const e = new Date(customRange.value[1]); e.setHours(23, 59, 59, 999);
+          currentRange = [s, e]; timeLabel.value = customRange.value[0] + ' ~ ' + customRange.value[1]; return;
+        }
+        currentRange = null; timeLabel.value = ''; return;
+      }
+      currentRange = null; timeLabel.value = '';
+    }
+    function timeFiltered(list) {
+      if (!currentRange) return list;
+      const lo = currentRange[0].getTime(), hi = currentRange[1].getTime();
+      return list.filter(h => { const t = new Date(h.createdAt || 0).getTime(); return t >= lo && t <= hi; });
+    }
+    // 业务 + 时间双重过滤后重算统计。
+    // 周/月对比卡片与 30 天趋势图始终基于「全业务全时间」口径（其本身已是固定窗口），
+    // 仅卡片计数、部门/等级/类型/重复问题等主指标随所选周期缩放，避免对比/趋势失真。
     function applyBiz() {
-      Object.assign(s, computeStats(bizFiltered()));
+      computeRange();
+      const base = bizFiltered();
+      const full = computeStats(base);
+      const ranged = computeStats(timeFiltered(base));
+      Object.assign(s, ranged, { comparison: full.comparison, trend: full.trend });
       scheduleRender();
     }
+    function applyTime() { applyBiz(); }
     const chartEl = ref(null);
     const pieEl = ref(null);
     const trendEl = ref(null);
@@ -505,10 +570,12 @@ export default {
           api.messages({}),
           api.announcements({ includeExpired: true })
         ]);
-        allHazards = hr.list || [];
-        const res = computeStats(bizFiltered());
-        Object.assign(s, res);
-        store.unread = res.unreadMessages || 0;
+        // 科室硬隔离：云函数返回全量，必须按「用户授权科室范围」（users.deptCodes，
+        // 见 dept.js inDeptScope）收口。不用 currentDept 徽章判定 —— 否则徽章在 JN
+        // 时安全业务 tab 恒为空（v1.0.24 回归）；单科室用户依旧看不到跨科室数据。
+        allHazards = (hr.list || []).filter((h) => inDeptScope(h, user));
+        applyBiz();
+        store.unread = s.unreadMessages || 0;
         const visible = filterMessagesByUser(user, m.list || []);
         messages.value = visible.slice(0, 6);
         // 未读：管理员沿用 api.stats 的口径（全部消息未读数）；普通用户按可见消息
@@ -759,6 +826,8 @@ export default {
       s, cards: CARD_CFG, messages,
       // 业务切换
       bizList, filterBiz, applyBiz, businessLabelOf,
+      // 统计周期
+      timeRange, customRange, timeLabel, applyTime,
       // 公告栏
       announcements, annExpanded, annRead, annVisible, annDetail, annHtml, openAnnouncement, ANN_CATEGORY_MAP,
       trendEl, severityEl, barEl, pieEl, categoryEl,

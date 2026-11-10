@@ -260,10 +260,27 @@ body {
 .el-descriptions__label { background: rgba(15,23,42,0.8) !important; color: var(--c-text-soft) !important; }
 .el-descriptions__content { background: rgba(20,28,45,0.6) !important; color: var(--c-text) !important; }
 .el-form-item__label { color: var(--c-text-soft) !important; }
-.el-input__wrapper, .el-textarea__inner, .el-select .el-input__wrapper {
+.el-input__wrapper, .el-textarea__inner, .el-select .el-input__wrapper, .el-select__wrapper {
   background: rgba(15,23,42,0.7) !important; box-shadow: 0 0 0 1px var(--c-border) inset !important; color: var(--c-text) !important;
 }
 .el-input__inner { color: var(--c-text) !important; }
+/* Element Plus 2.7 的 el-select 改用 .el-select__wrapper（不再复用 el-input__wrapper），
+   上面那条老选择器兜不住，导致全站下拉在深色主题下仍是白底。
+   同时把占位符/选中文字与下拉弹层一起压深，避免白底白字。 */
+.el-select__wrapper.is-focused { box-shadow: 0 0 0 1px var(--c-primary) inset !important; }
+.el-select__placeholder { color: var(--c-text-soft) !important; }
+.el-select__selected-item { color: var(--c-text) !important; }
+.el-select__caret { color: var(--c-text-soft) !important; }
+.el-select-dropdown { background: var(--c-surface-solid) !important; border: 1px solid var(--c-border) !important; box-shadow: var(--shadow) !important; }
+.el-select-dropdown__item { color: var(--c-text) !important; }
+.el-select-dropdown__item.is-hovering { background: rgba(0,229,160,.10) !important; }
+.el-select-dropdown__item.is-selected { color: var(--c-primary) !important; font-weight: 600; }
+.el-select-dropdown__empty { color: var(--c-text-soft) !important; }
+.el-popper.is-light, .el-popper.is-light > .el-popper__arrow::before { background: var(--c-surface-solid) !important; border-color: var(--c-border) !important; }
+.el-input-number, .el-input-number .el-input__wrapper { background: transparent !important; }
+.el-input-number__decrease, .el-input-number__increase {
+  background: rgba(15,23,42,0.7) !important; color: var(--c-text) !important; border-color: var(--c-border) !important;
+}
 .el-pagination .btn-prev, .el-pagination .btn-next, .el-pagination .number {
   background: rgba(15,23,42,0.7) !important; color: var(--c-text) !important;
 }

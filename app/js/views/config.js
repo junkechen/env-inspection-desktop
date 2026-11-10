@@ -1,22 +1,22 @@
-// 配置管理 —— 业务类型 / 隐患类别的可视化维护（仅管理员）
+// 配置管理 —— 业务类型 / 隐患类别 / 科室 的可视化维护（仅管理员）
 //
 // 【设计要点】
 //  1. 入口三重限制：菜单 adminOnly → 路由守卫 → 本页 allowed 守卫（最后一道，防直达）。
 //     前端三道都只是提示，真正的强制在云函数 index.js 的 requireAdminForConfig。
 //  2. 字典 ≠ 授权：这里新增的项只进全局字典，不会自动给任何账号开放；
 //     必须回到【用户管理】为指定账号勾选后才可用（页面上有明确提示）。
-//  3. 生命周期：被引用的项（隐患在用 / 用户已授权）禁止物理删除，只能停用；
+//  3. 生命周期：被引用的项（隐患在用 / 用户已授权 / 业务已归属）禁止物理删除，只能停用；
 //     停用后历史数据照常显示统计（反查走全量字典），只是不再出现在新建表单里。
+//  4. 科室是数据隔离维度：新增业务可归属到全新科室，科室本身在这里维护（depts 字典）。
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { canManageConfig } from '../permission.js';
 import {
   activeBusinesses, categoryNamesOf, loadConfig, saveBusinessItems, saveCategoryItems,
-  ensureSeeded, configState
+  saveDeptItems, ensureSeeded, configState,
+  allDepts, deptInfoOf, deptRefCount
 } from '../config_store.js';
 import { businessLabelOf } from '../business.js';
-
-const DEPT_OPTS = [{ value: 'AQ', label: '安全科（AQ）' }, { value: 'JN', label: '节能环保科（JN）' }];
 
 export default {
   template: `
@@ -24,21 +24,21 @@ export default {
     <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px">
       <div>
         <h2 class="page-title neon-title">配置管理</h2>
-        <p class="page-sub">业务类型与隐患类别字典 · 云端保存后各端自动生效，无需重新安装</p>
+        <p class="page-sub">业务类型 / 隐患类别 / 科室字典 · 云端保存后各端自动生效，无需重新安装</p>
       </div>
       <div style="text-align:right">
         <div style="color:var(--c-text-soft);font-size:12px">字典更新于 {{ configState.updatedAt ? configState.updatedAt.replace('T',' ').slice(0,19) : '尚未初始化' }}</div>
-        <div style="color:var(--c-text-soft);font-size:12px">业务 {{ activeBusinesses.length }} 项 / 类别 {{ catItems.length }} 项</div>
+        <div style="color:var(--c-text-soft);font-size:12px">业务 {{ activeBusinesses.length }} 项 / 类别 {{ catItems.length }} 项 / 科室 {{ deptItems.length }} 项</div>
       </div>
     </div>
 
     <!-- 规则说明：把「新增不等于赋权」写在最显眼的地方，避免管理员误判 -->
     <div class="card section" style="border-left:3px solid var(--c-primary);margin-bottom:18px;background:rgba(56,189,248,.06)">
       <div style="font-size:13px;line-height:1.9;color:var(--c-text)">
-        <b>字典与授权是两件事：</b>在这里新增的业务/类别只会进入<b>全局字典</b>，
+        <b>字典与授权是两件事：</b>在这里新增的业务/类别/科室只会进入<b>全局字典</b>，
         不会自动勾选给任何账号。需到 <b>【用户管理】</b> 给指定账号勾选并保存后，
         该账号才能在业务上报、隐患填报、列表筛选中使用。<br />
-        <b>停用 vs 删除：</b>已被隐患数据引用或已赋权给用户的项<b>不可删除</b>，只能「停用」；
+        <b>停用 vs 删除：</b>已被隐患数据引用、已赋权给用户、或已有业务归属的项和科室<b>不可删除</b>，只能「停用」；
         停用后新表单不再出现该选项，但历史数据仍能正常反查业务/科室、正常统计。
       </div>
       <div style="margin-top:10px">
@@ -52,7 +52,7 @@ export default {
       <el-tab-pane label="业务类型" name="biz">
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-            <div style="color:var(--c-text-soft);font-size:12px">业务决定数据隔离科室（AQ/JN），改动会影响所有终端的下拉与统计口径</div>
+            <div style="color:var(--c-text-soft);font-size:12px">业务决定数据隔离科室（在「科室」页维护），改动会影响所有终端的下拉与统计口径</div>
             <el-button type="primary" size="small" @click="addBiz">新增业务</el-button>
           </div>
           <el-table :data="bizTable" v-loading="loading" stripe size="small">
@@ -61,7 +61,7 @@ export default {
             <el-table-column prop="name" label="名称" width="160" />
             <el-table-column prop="short" label="简称" width="90" />
             <el-table-column prop="code" label="代码" width="110" />
-            <el-table-column label="归属科室" width="150">
+            <el-table-column label="归属科室" width="170">
               <template #default="{row}">{{ deptLabel(row.dept) }}</template>
             </el-table-column>
             <el-table-column label="已赋权用户" width="110">
@@ -130,6 +130,47 @@ export default {
           </div>
         </div>
       </el-tab-pane>
+
+      <!-- 科室（数据隔离维度） -->
+      <el-tab-pane label="科室" name="dep">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <div style="color:var(--c-text-soft);font-size:12px">科室决定数据隔离范围；新增业务可归属到这里的任意科室（含新增科室）</div>
+            <el-button type="primary" size="small" @click="addDep">新增科室</el-button>
+          </div>
+          <el-table :data="deptTable" v-loading="loading" stripe size="small">
+            <el-table-column prop="sort" label="排序" width="70" />
+            <el-table-column prop="icon" label="图标" width="60" />
+            <el-table-column prop="code" label="代码" width="110" />
+            <el-table-column prop="name" label="名称" width="160" />
+            <el-table-column prop="short" label="简称" width="110" />
+            <el-table-column label="归属业务数" width="120">
+              <template #default="{row}">{{ deptRefCount(row.code) }} 个</template>
+            </el-table-column>
+            <el-table-column label="归属用户数" width="120">
+              <template #default="{row}">{{ deptUserCount(row.code) }} 人</template>
+            </el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="{row}">
+                <span v-if="row.enabled===false" class="tag-overdue">已停用</span>
+                <span v-else class="tag-closed">启用中</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="200">
+              <template #default="{row}">
+                <el-button text type="primary" size="small" @click="editDep(row)">编辑</el-button>
+                <el-button text :type="row.enabled===false ? 'success' : 'warning'" size="small" @click="toggleDept(row)">
+                  {{ row.enabled===false ? '启用' : '停用' }}
+                </el-button>
+                <el-button text type="danger" size="small" :disabled="!canDeleteDept(row)" @click="delDept(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div v-if="!deptTable.length" style="text-align:center;padding:30px 0;color:var(--c-text-soft)">
+            暂无科室，点击右上角「新增科室」创建
+          </div>
+        </div>
+      </el-tab-pane>
     </el-tabs>
 
     <!-- 新增/编辑：业务 -->
@@ -144,9 +185,9 @@ export default {
         <el-form-item label="图标"><el-input v-model="bizForm.icon" style="width:90px" placeholder="emoji" /></el-form-item>
         <el-form-item label="归属科室" required>
           <el-select v-model="bizForm.dept" style="width:100%">
-            <el-option v-for="d in DEPT_OPTS" :key="d.value" :label="d.label" :value="d.value" />
+            <el-option v-for="d in deptOpts" :key="d.value" :label="d.label" :value="d.value" />
           </el-select>
-          <div style="color:var(--c-text-soft);font-size:12px">决定该业务数据的隔离范围，选错会导致两个科室互相看不到对方数据</div>
+          <div style="color:var(--c-text-soft);font-size:12px">决定该业务数据的隔离范围，选错会导致两个科室互相看不到对方数据。没有合适的科室？到上方「科室」页新增。</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -170,6 +211,24 @@ export default {
         <el-button type="primary" :loading="saving" @click="saveCat">保存并生效</el-button>
       </template>
     </el-dialog>
+
+    <!-- 新增/编辑：科室 -->
+    <el-dialog v-model="depDlg" :title="editingDep ? '编辑科室' : '新增科室'" width="440px">
+      <el-form :model="depForm" label-width="100px">
+        <el-form-item label="科室代码" required>
+          <el-input v-model="depForm.code" :disabled="editingDep" placeholder="如 SC（新增后不可修改，作为数据隔离键）" />
+          <div v-if="!editingDep" style="color:var(--c-text-soft);font-size:12px">英文字母大写，将作为该科室数据的隔离键，创建后不可修改</div>
+        </el-form-item>
+        <el-form-item label="名称" required><el-input v-model="depForm.name" placeholder="如 生产科" /></el-form-item>
+        <el-form-item label="简称"><el-input v-model="depForm.short" placeholder="如 生产" /></el-form-item>
+        <el-form-item label="图标"><el-input v-model="depForm.icon" style="width:90px" placeholder="emoji" /></el-form-item>
+        <el-form-item label="颜色"><el-input v-model="depForm.color" style="width:120px" placeholder="#2e9e5b" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="depDlg=false">取消</el-button>
+        <el-button type="primary" :loading="saving" @click="saveDep">保存并生效</el-button>
+      </template>
+    </el-dialog>
   </div>
   <div v-else style="padding:60px;text-align:center">
     <el-result icon="warning" title="无访问权限" sub-title="业务类型与隐患类别的配置仅限管理员，请联系管理员" />
@@ -181,7 +240,6 @@ export default {
     // 第三道防线：即使路由被绕过，非管理员也只看到无权限页
     const allowed = canManageConfig(store.user);
     if (!allowed) {
-      // 不抛错、不拦截渲染：保留静态兜底页，避免刷到一个白屏
       console.warn('[config] 非管理员访问配置管理，已被视图守卫拦截:', store.user && store.user.username);
     }
 
@@ -193,17 +251,26 @@ export default {
     // ---------- 列表数据（本地工作副本，保存后整体写回云端） ----------
     const bizItems = ref([]);
     const catItems = ref([]);
+    const deptItems = ref([]);
     const bizTable = computed(() => (bizItems.value || []).slice());
     const catTable = computed(() => (catItems.value || []).slice());
+    const deptTable = computed(() => (deptItems.value || []).slice());
     const activeBusinesses = computed(() => (bizItems.value || []).filter(b => b.enabled !== false));
 
-    // 统计引用情况：哪些类别已被隐患使用、哪些业务已赋权给用户 —— 删除前必须看这两个数
+    // 归属科室下拉（动态，读全部科室含停用，保证老业务的原科室仍可选）
+    const deptOpts = computed(() => allDepts().map(d => ({
+      value: d.code,
+      label: `${d.name}（${d.code}）${d.enabled === false ? ' [已停用]' : ''}`
+    })));
+    function deptLabel(code) { return (deptInfoOf(code) || {}).name || code; }
+
+    // 统计引用情况：哪些类别已被隐患使用、哪些业务已赋权给用户、哪些科室已分配用户 —— 删除前必须看这三个数
     const usedMap = ref({});
     const assignedMap = ref({});
+    const deptUserMap = ref({});
 
     async function reloadRefs() {
       try {
-        // 只看需要的字段：全量隐患虽大，但这是管理员低频操作，一次拉全量换准确性
         const [hz, us] = await Promise.all([api.hazards({ page: 1, size: 0 }), api.users({})]);
         const map = {};
         (hz.list || []).forEach(h => {
@@ -218,17 +285,28 @@ export default {
           });
         });
         assignedMap.value = am;
+        // 用户归属科室统计（user.deptCodes 数组）
+        const dm = {};
+        (us.list || []).forEach(u => {
+          (Array.isArray(u.deptCodes) ? u.deptCodes : []).forEach(code => {
+            dm[code] = (dm[code] || 0) + 1;
+          });
+        });
+        deptUserMap.value = dm;
       } catch (e) {
-        // 引用统计失败不该卡住配置页，但也不能让删除按钮“看起来可以删”——
-        // 兜底：置为空 map，usedCount 返回 0 且界面降级为停用。
-        usedMap.value = {}; assignedMap.value = {};
+        usedMap.value = {}; assignedMap.value = {}; deptUserMap.value = {};
         console.warn('[config] 引用统计失败，删除校验降级为保守模式:', e && e.message);
       }
     }
     function usedCount(name) { return usedMap.value[name] || 0; }
     function assignedCount(code) { return assignedMap.value[code] || 0; }
+    function deptUserCount(code) { return deptUserMap.value[code] || 0; }
     /** 业务能否删除：没有隐患引用且没有用户被赋权 */
     function canDeleteBiz(row) { return assignedCount(row.code) === 0 && !row._builtin; }
+    /** 科室能否删除：没有业务归属、且没有用户归属该科室 */
+    function canDeleteDept(row) {
+      return deptRefCount(row.code) === 0 && deptUserCount(row.code) === 0 && !row._builtin;
+    }
 
     async function refresh() {
       loading.value = true;
@@ -237,6 +315,7 @@ export default {
         await ensureSeeded();
         bizItems.value = (configState.businessItems || []).slice();
         catItems.value = (configState.categoryItems || []).slice();
+        deptItems.value = (configState.deptItems || []).slice();
         await reloadRefs();
       } finally { loading.value = false; }
     }
@@ -257,14 +336,16 @@ export default {
         if (type === 'biz') {
           renumber(bizItems.value);
           await saveBusinessItems(bizItems.value.map(({ _builtin, ...rest }) => rest));
-        } else {
+        } else if (type === 'cat') {
           renumber(catItems.value);
           await saveCategoryItems(catItems.value.map(({ _builtin, ...rest }) => rest));
+        } else {
+          renumber(deptItems.value);
+          await saveDeptItems(deptItems.value.map(({ _builtin, ...rest }) => rest));
         }
         ElMessage.success('已保存到云端，其他终端将在 1 分钟内自动生效');
         await refresh();
       } catch (e) {
-        // 常见失败是云函数拦截（非管理员）或集合不可写，提示要可行动
         ElMessage.error('保存失败：' + (e && e.message) + '（若为「无权限」，请确认登录的是管理员账号）');
       } finally { saving.value = false; }
     }
@@ -274,8 +355,6 @@ export default {
     const editingBiz = ref(false);
     const editingBizCode = ref('');
     const bizForm = reactive({ code: '', name: '', short: '', icon: '🏷', dept: 'JN', color: '#38bdf8' });
-    const DEPT_OPTS_REF = DEPT_OPTS;
-    function deptLabel(code) { return (DEPT_OPTS.find(d => d.value === code) || {}).label || code; }
     function resetBizForm() { Object.assign(bizForm, { code: '', name: '', short: '', icon: '🏷', dept: 'JN', color: '#38bdf8' }); }
     function addBiz() { editingBiz.value = false; editingBizCode.value = ''; resetBizForm(); bizDlg.value = true; }
     function editBiz(row) {
@@ -286,6 +365,7 @@ export default {
     async function saveBiz() {
       if (!/^[A-Za-z][A-Za-z0-9_]{1,19}$/.test(bizForm.code)) { ElMessage.warning('业务代码需用字母开头、2-20 位字母数字或下划线'); return; }
       if (!bizForm.name) { ElMessage.warning('请填写名称'); return; }
+      if (!bizForm.dept || !deptOpts.value.some(d => d.value === bizForm.dept)) { ElMessage.warning('请选择归属科室'); return; }
       const dup = bizItems.value.find(b => b.code === bizForm.code && b.code !== editingBizCode.value);
       if (dup) { ElMessage.warning('业务代码已存在：' + bizForm.code); return; }
       if (editingBiz.value) {
@@ -320,14 +400,12 @@ export default {
       const name = (catForm.name || '').trim();
       if (!name) { ElMessage.warning('请填写类别名称'); return; }
       if (!catForm.business) { ElMessage.warning('请选择所属业务'); return; }
-      // 同名校验：同业务内重复会让统计口径分不清两条数据，必须挡住
       const dup = catItems.value.find(c => c.name === name && c.business === catForm.business && c.name !== editingCatName.value);
       if (dup) { ElMessage.warning('该业务下已存在同名类别：' + name); return; }
       if (editingCat.value) {
         const old = catItems.value.find(c => c.name === editingCatName.value);
         const used = usedCount(editingCatName.value);
         if (used > 0) {
-          // 改名会让历史隐患的中文类别失配 —— 这是不可逆的，先让管理员确认
           try {
             await ElMessageBox.confirm(
               `该类别已被 ${used} 条隐患引用，改名后这些历史记录将无法反查原业务/科室，可能导致科室归属错乱。建议改为「停用 + 新建」。确认仍要改名？`,
@@ -342,7 +420,64 @@ export default {
       await persist('cat');
     }
 
-    // ---------- 停用 / 删除 / 排序 ----------
+    // ---------- 科室维护 ----------
+    const depDlg = ref(false);
+    const editingDep = ref(false);
+    const editingDepCode = ref('');
+    const depForm = reactive({ code: '', name: '', short: '', icon: '🏷', color: '#2e9e5b' });
+    function resetDepForm() { Object.assign(depForm, { code: '', name: '', short: '', icon: '🏷', color: '#2e9e5b' }); }
+    function addDep() { editingDep.value = false; editingDepCode.value = ''; resetDepForm(); depDlg.value = true; }
+    function editDep(row) {
+      editingDep.value = true; editingDepCode.value = row.code;
+      Object.assign(depForm, { code: row.code, name: row.name, short: row.short || '', icon: row.icon || '🏷', color: row.color || '#2e9e5b' });
+      depDlg.value = true;
+    }
+    async function saveDep() {
+      if (!/^[A-Za-z][A-Za-z0-9_]{1,19}$/.test(depForm.code)) { ElMessage.warning('科室代码需用字母开头、2-20 位字母数字或下划线'); return; }
+      if (!depForm.name) { ElMessage.warning('请填写名称'); return; }
+      const dup = deptItems.value.find(d => d.code === depForm.code && d.code !== editingDepCode.value);
+      if (dup) { ElMessage.warning('科室代码已存在：' + depForm.code); return; }
+      if (editingDep.value) {
+        const row = deptItems.value.find(d => d.code === editingDepCode.value);
+        Object.assign(row, { name: depForm.name, short: depForm.short, icon: depForm.icon, color: depForm.color });
+      } else {
+        deptItems.value.push({
+          code: depForm.code, name: depForm.name, short: depForm.short || depForm.name,
+          icon: depForm.icon, color: depForm.color, enabled: true, sort: deptItems.value.length + 1
+        });
+      }
+      depDlg.value = false;
+      await persist('dep');
+    }
+    async function toggleDept(row) {
+      const willDisable = row.enabled !== false;
+      if (willDisable) {
+        const ref = deptRefCount(row.code);
+        const usr = deptUserCount(row.code);
+        if (ref > 0 || usr > 0) {
+          try {
+            await ElMessageBox.confirm(
+              `停用后：新表单不再出现该科室；当前有 ${ref} 个业务、${usr} 个用户归属此科室，其历史数据仍可正常反查与统计。确认停用？`,
+              '停用确认', { type: 'warning' });
+          } catch (e) { return; }
+        }
+      }
+      row.enabled = !willDisable;
+      await persist('dep');
+    }
+    async function delDept(row) {
+      if (!canDeleteDept(row)) {
+        ElMessage.error('该科室已被业务或用户引用，不能删除，请改用「停用」');
+        return;
+      }
+      try {
+        await ElMessageBox.confirm('确认删除？删除后所有终端将不再显示该科室（不影响历史数据）。', '删除确认', { type: 'warning' });
+      } catch (e) { return; }
+      deptItems.value = deptItems.value.filter(d => d.code !== row.code);
+      await persist('dep');
+    }
+
+    // ---------- 停用 / 删除 / 排序（业务 & 类别） ----------
     async function toggleItem(row, type) {
       const willDisable = row.enabled !== false;
       if (willDisable) {
@@ -360,7 +495,6 @@ export default {
     async function delItem(row, type) {
       const used = type === 'cat' ? usedCount(row.name) : assignedCount(row.code);
       if (used > 0) {
-        // 理论上来不到这里（按钮已 disabled），保留兜底提示防止并发期间刚好被引用
         ElMessage.error((type === 'cat' ? '该类别已被 ' : '该业务已赋权给 ') + used + (type === 'cat' ? ' 条隐患引用' : ' 个账号') + '，不能删除，请改用「停用」');
         return;
       }
@@ -381,11 +515,13 @@ export default {
     }
 
     return {
-      allowed, tab, loading, saving, syncing, bizItems, catItems, bizTable, catTable,
-      activeBusinesses, configState, categoryNamesOf, businessLabelOf,
-      usedCount, assignedCount, canDeleteBiz, deptLabel,
-      bizDlg, editingBiz, bizForm, DEPT_OPTS: DEPT_OPTS_REF, addBiz, editBiz, saveBiz,
+      allowed, tab, loading, saving, syncing, bizItems, catItems, deptItems, bizTable, catTable, deptTable,
+      activeBusinesses, deptOpts, deptLabel, deptRefCount, deptUserCount,
+      configState, categoryNamesOf, businessLabelOf,
+      usedCount, assignedCount, canDeleteBiz, canDeleteDept,
+      bizDlg, editingBiz, bizForm, addBiz, editBiz, saveBiz,
       catDlg, editingCat, catForm, addCat, editCat, saveCat,
+      depDlg, editingDep, depForm, addDep, editDep, saveDep, toggleDept, delDept,
       toggleItem, delItem, move, refreshFromCloud, refresh
     };
   }

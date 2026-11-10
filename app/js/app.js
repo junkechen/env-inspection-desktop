@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { store, logout, toggleSidebar, closeSidebar } from './store.js';
 import { route, navigate, topPath, back } from './router.js';
-import { canManageUsers, canManageConfig } from './permission.js';
+import { canManageUsers, canManageConfig, isSafetyEnvStaff } from './permission.js';
 import { businessInfos, businessShortLabel } from './business.js';
 import { loadConfig } from './config_store.js';
 import Login from './views/login.js';
@@ -13,6 +13,9 @@ import Departments from './views/departments.js';
 import Messages from './views/messages.js';
 import Announcements from './views/announcements.js';
 import Config from './views/config.js';
+import Suggestions from './views/suggestions.js';
+import AiHazard from './views/ai_hazard.js';
+import Assessments from './views/assessments.js';
 
 const { createApp, computed, watch, onMounted, ref } = Vue;
 
@@ -24,6 +27,11 @@ const menus = [
   { path: '/users', title: '用户管理', icon: 'User', adminOnly: true },
   { path: '/departments', title: '部门/车间', icon: 'OfficeBuilding' },
   { path: '/messages', title: '消息催办', icon: 'Bell' },
+  // 日常管理模块（对齐 APK v3.7.16+）：合理化建议 / AI 隐患识别 / 模块考核落实单
+  { path: '/suggestions', title: '合理化建议', icon: 'ChatDotRound' },
+  { path: '/ai-hazard', title: 'AI 隐患识别', icon: 'MagicStick' },
+  // 模块考核落实单：仅安环部（含管理员）可见入口；被审核人本人通过详情可见数据
+  { path: '/assessments', title: '模块考核落实单', icon: 'Files', safetyEnvOnly: true },
   // 业务类型 / 隐患类别字典维护 —— 仅管理员，字典新增后还要回用户管理赋权
   { path: '/config', title: '配置管理', icon: 'Setting', adminOnly: true }
 ];
@@ -36,6 +44,9 @@ const viewMap = {
   '/departments': Departments,
   // 统计分析已合并到仪表盘（/statistics 自动回退到 /）
   '/messages': Messages,
+  '/suggestions': Suggestions,
+  '/ai-hazard': AiHazard,
+  '/assessments': Assessments,
   '/config': Config
 };
 
@@ -117,8 +128,12 @@ const App = {
       return m ? m.title : 'GZ环保巡查管理系统';
     });
     const initial = computed(() => ((store.user && store.user.name) || '?').slice(0, 1));
-    // 菜单按角色过滤：adminOnly 项（用户管理）只对管理员显示
-    const visibleMenus = computed(() => menus.filter((m) => !m.adminOnly || canManageUsers(store.user)));
+    // 菜单按角色过滤：adminOnly 项（用户管理/配置）只对管理员显示；
+    // safetyEnvOnly 项（模块考核落实单）只对安环部（含管理员）显示
+    const visibleMenus = computed(() => menus.filter((m) =>
+      (!m.adminOnly || canManageUsers(store.user)) &&
+      (!m.safetyEnvOnly || isSafetyEnvStaff(store.user))
+    ));
     // 只在确实归属多个科室时才给切换入口 —— 单人单科室的用户不该看到选择器
     const myDepts = computed(() => availableDepts(store.user).map(deptInfo));
     const canSwitchDept = computed(() => myDepts.value.length > 1);

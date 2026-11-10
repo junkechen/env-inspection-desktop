@@ -29,7 +29,8 @@ import { setBizCategoryLookup } from './stats_utils.js';
 import {
   BUILTIN_BUSINESS_TYPES, BUILTIN_BUSINESS_TO_DEPT,
   BUILTIN_CATEGORY_BY_BUSINESS, BUILTIN_BUSINESS_OF_CATEGORY,
-  builtinBusinessItems, builtinCategoryItems
+  BUILTIN_DEPTS,
+  builtinBusinessItems, builtinCategoryItems, builtinDeptItems
 } from './builtin_dict.js';
 
 // node 环境下没有全局 Vue（test/*.mjs 会间接 import 本模块链），降级为普通对象：
@@ -38,11 +39,13 @@ const reactive = (typeof Vue !== 'undefined' && Vue.reactive) ? Vue.reactive : (
 
 export const KEY_BUSINESS = 'business_types';
 export const KEY_CATEGORY = 'issue_categories';
+export const KEY_DEPT = 'depts';
 
 export const configState = reactive({
   /** null = 尚未从云端取到；数组 = 云端值（含 enabled:false 的禁用项） */
   businessItems: null,
   categoryItems: null,
+  deptItems: null,
   loaded: false,
   /** 云端最近一次更新时间，界面上给管理员一个"配置是否已下发"的确认点 */
   updatedAt: '',
@@ -74,9 +77,11 @@ export async function loadConfig(force = false) {
     const map = await api.getAppConfig();
     const biz = map[KEY_BUSINESS];
     const cat = map[KEY_CATEGORY];
+    const dep = map[KEY_DEPT];
     configState.businessItems = biz && Array.isArray(biz.items) ? bySort(biz.items) : [];
     configState.categoryItems = cat && Array.isArray(cat.items) ? bySort(cat.items) : [];
-    configState.updatedAt = (biz && biz.updateTime) || (cat && cat.updateTime) || '';
+    configState.deptItems = dep && Array.isArray(dep.items) ? bySort(dep.items) : [];
+    configState.updatedAt = (biz && biz.updateTime) || (cat && cat.updateTime) || (dep && dep.updateTime) || '';
     configState.loaded = true;
     // 无论是否管理员，反查函数都切到动态字典（含禁用类别，保证历史数据可反查）
     setBizCategoryLookup(bizOfCategoryName);
@@ -100,11 +105,13 @@ async function seedIfEmpty() {
   if (configState.seeding) return;
   const needBiz = !configState.businessItems || !configState.businessItems.length;
   const needCat = !configState.categoryItems || !configState.categoryItems.length;
-  if (!needBiz && !needCat) return;
+  const needDep = !configState.deptItems || !configState.deptItems.length;
+  if (!needBiz && !needCat && !needDep) return;
   configState.seeding = true;
   try {
     if (needBiz) await api.saveAppConfig(KEY_BUSINESS, builtinBusinessItems(), 'system-init');
     if (needCat) await api.saveAppConfig(KEY_CATEGORY, builtinCategoryItems(), 'system-init');
+    if (needDep) await api.saveAppConfig(KEY_DEPT, builtinDeptItems(), 'system-init');
     await loadConfig(true);
   } catch (e) {
     console.warn('[config] 播种默认字典失败（不影响内置兜底）:', e && e.message);
@@ -157,6 +164,51 @@ export function allCategoryNames() {
   return categoryNamesOf('');
 }
 
+// ============================================================
+// 科室（数据隔离维度）读取 —— 与业务/类别同走云端 appConfig 的 depts key
+//
+// 之所以把科室也放进动态字典，而不是沿用 dept.js 里写死的 DEPTS：
+//   新增业务要能归属到一个「全新的科室」，科室本身必须可由管理员在界面维护，
+//   否则即便业务选了不存在的科室码，dept.js 的 isValidDept 也会把它静默回退到默认科室，
+//   造成新业务数据错归到别的科室桶里（数据隔离 bug）。
+// 兜底：云端未配置 / 断网时用 BUILTIN_DEPTS，保证 JN/AQ 永远有效。
+// ============================================================
+
+/** 启用中的科室列表（下拉/切换栏用） */
+export function activeDepts() {
+  const items = (configState.deptItems || []).filter(d => d && d.enabled !== false);
+  if (!items.length) return BUILTIN_DEPTS;
+  return items;
+}
+
+/** 全部科室（含禁用）—— 反查/统计用 */
+export function allDepts() {
+  return (configState.deptItems || []).length ? configState.deptItems : BUILTIN_DEPTS;
+}
+
+/** 科室编码列表（动态） */
+export function deptCodes() {
+  return allDepts().map((d) => d.code);
+}
+
+/** 科室 code → 科室定义（含禁用）；未命中返回 undefined */
+export function deptInfoOf(code) {
+  const hit = allDepts().find((d) => d.code === code);
+  if (hit) return hit;
+  return BUILTIN_DEPTS.find((d) => d.code === code);
+}
+
+/** 科室 code → 展示名（用于列表/提示） */
+export function deptLabelOf(code) {
+  const d = deptInfoOf(code);
+  return d ? d.name : (code || '—');
+}
+
+/** 某科室被多少个业务引用（用于删除前校验：被引用的科室禁止删除、只能停用） */
+export function deptRefCount(code) {
+  return (configState.businessItems || []).filter((b) => b && b.dept === code).length;
+}
+
 /**
  * 类别中文名 → 业务。
  * 走全部条目（含禁用）：历史隐患写了旧类别，即使类别被管理员停用，
@@ -184,5 +236,11 @@ export async function saveBusinessItems(items) {
 export async function saveCategoryItems(items) {
   await api.saveAppConfig(KEY_CATEGORY, items, currentOperator());
   configState.categoryItems = bySort(items);
+  return true;
+}
+
+export async function saveDeptItems(items) {
+  await api.saveAppConfig(KEY_DEPT, items, currentOperator());
+  configState.deptItems = bySort(items);
   return true;
 }

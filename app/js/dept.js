@@ -6,20 +6,35 @@
 //   3. 切换必须清缓存，否则会读到另一个科室的旧数据（原 api.js collectionKey 只有
 //      'col:hazards:{}'，两科室共用同一条缓存，TTL 60s + localStorage 持久化）。
 //
-// 注意：本模块保持零依赖 —— 不 import api.js / cache.js。
-//       api.js 会反向依赖本模块的 currentDept()，因此这里一旦引入依赖就会形成环，
-//       ES Module 在这种环上的初始化顺序不可靠。清缓存的动作交给调用方执行。
+// 科室字典已迁到云端（appConfig 集合的 depts key，见 config_store.js + builtin_dict.js）：
+//   · 管理员在【配置管理】里增删改，所有客户端无需重新编译即可生效；
+//   · 本文件只做「组装」——把动态字典与老导出名对齐，保证既有调用方零改造；
+//   · 静态常量（DEPTS 等）保留为离线兜底值，运行时请优先用动态函数
+//     （activeDepts / allDepts / deptInfoOf / deptLabelOf / deptRefCount）。
+//
+// 注意：本模块依赖 config_store（取动态值），而 api.js 反向依赖本模块的 currentDept()，
+//      因此这里一旦在「顶层」引入 api 就会形成环。
+//      依赖方向：dept → config_store → api → dept，环靠 ES Module 的 live binding
+//      + 全部在「函数体内」调用而非顶层求值来保证安全（项目里 api↔store 同理）。
 
-export const DEPTS = [
-  { code: 'JN', name: '节能环保科', short: '节能环保', color: '#2e9e5b', icon: '🌿' },
-  { code: 'AQ', name: '安全科', short: '安全', color: '#e8823c', icon: '⚠' }
-];
+import {
+  allDepts, deptInfoOf, deptCodes as dynDeptCodes, deptLabelOf
+} from './config_store.js';
+// 业务隔离口径（v1.0.28）：inDeptScope 改按「可见业务集合」判定。
+// business.js / stats_utils.js 均不反向依赖本模块的顶层值（环同上，仅函数体内调用）。
+import { visibleBizCodes } from './business.js';
+import { businessOf } from './stats_utils.js';
 
 export const DEFAULT_DEPT = 'JN';
 
 const KEY = 'gz_dept';
 
-export function deptCodes() { return DEPTS.map((d) => d.code); }
+/** 离线兜底科室（config_store 尚未加载云端值时用，保证 JN/AQ 永远有效） */
+function fallbackDepts() {
+  return allDepts();
+}
+
+export function deptCodes() { return dynDeptCodes(); }
 
 export function isValidDept(code) { return deptCodes().indexOf(code) !== -1; }
 
@@ -45,8 +60,8 @@ export function resetDept() {
 
 /**
  * 该用户可访问的科室列表。
- * 来源：login 返回体（服务端根据 users.deptCode 计算）。
- * 存量用户尚未回填 deptCode，服务端会兜底给 ['JN']，此时只剩一个科室、不显示切换入口。
+ * 来源：login 返回体（服务端根据 users.deptCodes 计算）。
+ * 存量用户尚未回填 deptCodes，服务端会兜底给 ['JN']，此时只剩一个科室、不显示切换入口。
  */
 export function availableDepts(user) {
   const codes = (user && user.deptCodes) || [];
@@ -66,18 +81,18 @@ export function syncDeptFromUser(user) {
 
 export function deptInfo(code) {
   const c = isValidDept(code) ? code : DEFAULT_DEPT;
-  return DEPTS.find((d) => d.code === c) || DEPTS[0];
+  return deptInfoOf(c) || fallbackDepts().find((d) => d.code === DEFAULT_DEPT) || { code: DEFAULT_DEPT, name: '默认科室', short: '默认', color: '#64748b', icon: '🏷' };
 }
 
 // ============================================================
-// 业务 → 科室 隔离字典（业务/类别唯一真源在 business.js）
+// 业务 → 科室 隔离字典（业务/类别唯一真源在 config_store.js）
 //
 // 隐患归属科室的判定顺序见 hazardDeptOf：
 //   1. 自身 deptCode（上报时已按业务写入）
-//   2. 自身 businessType → BUSINESS_TO_DEPT
-//   3. 自身 category（中文）→ BUSINESS_OF_CATEGORY 反查业务 → 再映射科室
+//   2. 自身 businessType → deptOfBusiness（读取业务条目的 dept 字段）
+//   3. 自身 category（中文）→ businessOfCategory 反查业务 → 再映射科室
 //   4. 兜底默认科室
-// 类别在库里存中文本身，故 BUSINESS_OF_CATEGORY 仍用中文匹配，历史数据零迁移。
+// 类别在库里存中文本身，故反查仍用中文匹配，历史数据零迁移。
 // ============================================================
 import { categoryNamesOf, deptOfBusiness, bizOfCategoryName } from './config_store.js';
 
@@ -116,8 +131,20 @@ export function hazardDeptOf(h) {
   return DEFAULT_DEPT;
 }
 
-/** 是否命中当前科室（列表/统计/导出统一用这个） */
-export function inCurrentDept(h) { return hazardDeptOf(h) === currentDept(); }
+/**
+ * 该用户是否可见此隐患 —— v1.0.28 起统一判定口径（按业务隔离）。
+ *
+ * 可见 ⇔ 隐患业务（businessType，缺失按类别反查，见 stats_utils.businessOf）
+ * ∈ 用户可见业务集合（business.js visibleBizCodes：admin 全部 / 显式赋权 /
+ * deptCodes 派生 / 存量兼容全部）。业务本就归属科室，按业务隔离天然蕴含科室隔离。
+ *
+ * 徽章（currentDept）不参与本判定 —— 只决定仪表盘分组视角与默认业务 tab。
+ * 历史教训：v1.0.24~v1.0.27 三版回归均因「徽章参与数据过滤」且多处口径不一致
+ * （本函数 vs permission.js 的 inCurrentDept 层），v1.0.28 起全端唯一口径。
+ */
+export function inDeptScope(h, user) {
+  return visibleBizCodes(user).indexOf(businessOf(h)) !== -1;
+}
 
 // ============================================================
 // 切换科室

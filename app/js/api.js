@@ -42,39 +42,45 @@ export function getStoredUser() {
   try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch (e) { return null; }
 }
 
-// 底层 RPC：调用云函数某个 action
-// 带超时控制；统一把非约定结构（缺 code 或 code!=0）转换为可读错误。
-export async function rpc(action, { collection, query, data } = {}) {
-  const body = { action };
-  if (collection) body.collection = collection;
-  if (query) body.query = query;
-  if (data) body.data = data;
+// 底层 RPC（可指定超时）：调用云函数某个 action，带超时控制。
+function buildRpc(timeout) {
+  return async function (action, { collection, query, data } = {}) {
+    const body = { action };
+    if (collection) body.collection = collection;
+    if (query) body.query = query;
+    if (data) body.data = data;
 
-  const headers = { 'Content-Type': 'application/json', 'X-TCB-Env': ENV };
-  const tk = getToken();
-  if (tk) headers['Authorization'] = 'Bearer ' + tk;
+    const headers = { 'Content-Type': 'application/json', 'X-TCB-Env': ENV };
+    const tk = getToken();
+    if (tk) headers['Authorization'] = 'Bearer ' + tk;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
-  let res;
-  try {
-    res = await fetch(GW, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
-  } catch (e) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    let res;
+    try {
+      res = await fetch(GW, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+    } catch (e) {
+      clearTimeout(timer);
+      if (e && e.name === 'AbortError') throw new Error('请求超时，请检查网络或稍后重试');
+      throw new Error('网络请求失败：' + (e && e.message ? e.message : '未知错误'));
+    }
     clearTimeout(timer);
-    if (e && e.name === 'AbortError') throw new Error('请求超时，请检查网络或稍后重试');
-    throw new Error('网络请求失败：' + (e && e.message ? e.message : '未知错误'));
-  }
-  clearTimeout(timer);
 
-  let json = {};
-  try { json = await res.json(); } catch (e) { /* 返回非 JSON（如网关 502 文本） */ }
+    let json = {};
+    try { json = await res.json(); } catch (e) { /* 返回非 JSON */ }
 
-  // 约定：成功必须显式 code===0；缺 code 也视为失败，避免静默拿到非约定结构
-  if (!res.ok || json.code === undefined || json.code !== 0) {
-    throw new Error(json.message || ('请求失败(' + res.status + ')'));
-  }
-  return json;
+    if (!res.ok || json.code === undefined || json.code !== 0) {
+      // aiHazard 等业务码已在云函数层给出可读 message，直接透传
+      if (json && json.message) throw new Error(json.message);
+      throw new Error('请求失败(' + res.status + ')');
+    }
+    return json;
+  };
 }
+// 默认 20s 超时（弱网/网关卡死时避免 UI 永久 loading）
+export const rpc = buildRpc(REQUEST_TIMEOUT);
+// AI 识别：模型默认开启思考模式，推理可能超过 60s，单独放大到 120s（对齐 APK ai_hazard_service.dart）
+export const rpcLong = buildRpc(120000);
 
 // 角色 / 状态 中文映射（与 APP 枚举保持一致）
 export const ROLE_MAP = {
@@ -112,7 +118,9 @@ const COLLECTION_TTL = {
   users: 5 * 60 * 1000,
   departments: 10 * 60 * 1000,
   message: 60 * 1000,
-  announcement: 60 * 1000
+  announcement: 60 * 1000,
+  suggestions: 60 * 1000,
+  moduleAssessments: 60 * 1000
 };
 
 // 是否写入 localStorage（仅内存缓存则刷新页面即失效）。
@@ -573,6 +581,75 @@ export const api = {
     return r.url || '';
   },
 
+  // ---------- AI 隐患识别（action: aiHazard，独立 120s 超时） ----------
+  // 与 APK ai_hazard_service.dart 同协议：POST {action:'aiHazard', data:{images:[base64...], location?, note?}}
+  // 网关对请求体大小限制约 100KB（单张 base64 必须 ≤ ~75KB），故桌面端同样强制最多 1 张。
+  aiHazard: async (images, { location, note } = {}) => {
+    const data = { images };
+    if (location && location.trim()) data.location = location.trim();
+    if (note && note.trim()) data.note = note.trim();
+    const r = await rpcLong('aiHazard', { data });
+    // 云函数返回 { code:0, analysis:{...}, raw? }
+    if (r.analysis && typeof r.analysis === 'object') return { analysis: r.analysis, raw: r.raw || '' };
+    if (r.raw) return { analysis: null, raw: r.raw };
+    return { analysis: null, raw: '' };
+  },
+
+  // ---------- 合理化建议（集合 suggestions） ----------
+  // 软删除：列表统一过滤 isDeleted。可见性：全员可读；评审组/管理决议走权限层。
+  suggestions: async (params = {}) => {
+    const all = await queryCollection('suggestions');
+    const kw = (params.keyword || '').trim();
+    let list = (all || []).filter((s) => !s.isDeleted && s.status !== 'deleted');
+    if (params.status && params.status !== 'all') list = list.filter((s) => s.status === params.status);
+    if (params.category && params.category !== 'all') list = list.filter((s) => (s.category || '').indexOf(params.category) >= 0);
+    if (kw) list = list.filter((s) => (s.title || '').indexOf(kw) >= 0 || (s.name || '').indexOf(kw) >= 0 || (s.department || '').indexOf(kw) >= 0 || (s.proposal || '').indexOf(kw) >= 0);
+    list = [...list].sort((a, b) => fmt(b.createdAt || '').localeCompare(fmt(a.createdAt || '')));
+    return paginate(list, params.page, params.size);
+  },
+  createSuggestion: async (s) => {
+    const r = await rpc('add', { collection: 'suggestions', data: s });
+    invalidate(cachePrefix('suggestions'));
+    return r;
+  },
+  updateSuggestion: async (id, s) => {
+    const q = id.length > 24 ? { id } : { _id: id };
+    const r = await rpc('update', { collection: 'suggestions', query: q, data: s });
+    invalidate(cachePrefix('suggestions'));
+    return r;
+  },
+  deleteSuggestion: async (id) => {
+    const q = id.length > 24 ? { id } : { _id: id };
+    const r = await rpc('update', { collection: 'suggestions', query: q, data: { isDeleted: true, deletedAt: new Date().toISOString() } });
+    invalidate(cachePrefix('suggestions'));
+    return r;
+  },
+
+  // ---------- 模块考核落实单（集合 moduleAssessments） ----------
+  // 可见性过滤在服务端已收窄（非安环部只拉自己为被审核人的单子）；
+  // 内存侧再按 canViewAssessment 兜底（同机换号/越权残留）。
+  assessments: async (params = {}) => {
+    const all = await queryCollection('moduleAssessments');
+    const kw = (params.keyword || '').trim();
+    let list = (all || []).filter((a) => !a.isDeleted && a.status !== 'deleted');
+    if (params.status && params.status !== 'all') list = list.filter((a) => a.status === params.status);
+    if (params.category && params.category !== 'all') list = list.filter((a) => (a.category || '') === params.category);
+    if (kw) list = list.filter((a) => (a.reportNo || '').indexOf(kw) >= 0 || (a.auditedDept || '').indexOf(kw) >= 0 || (a.auditedPerson || '').indexOf(kw) >= 0);
+    list = [...list].sort((a, b) => fmt(b.createdAt || '').localeCompare(fmt(a.createdAt || '')));
+    return paginate(list, params.page, params.size);
+  },
+  createAssessment: async (a) => {
+    const r = await rpc('add', { collection: 'moduleAssessments', data: a });
+    invalidate(cachePrefix('moduleAssessments'));
+    return r;
+  },
+  updateAssessment: async (id, a) => {
+    const q = id.length > 24 ? { id } : { _id: id };
+    const r = await rpc('update', { collection: 'moduleAssessments', query: q, data: a });
+    invalidate(cachePrefix('moduleAssessments'));
+    return r;
+  },
+
   // ---------- 缓存 ----------
   // 后台预热：登录后把各集合提前取回，之后切换页面/打开弹窗即可即时渲染。
   // 不 await、失败静默，绝不阻塞登录流程。
@@ -582,7 +659,9 @@ export const api = {
       ['users', {}],
       ['message', {}],
       ['departments', {}],
-      [ANN_COL, { docType: DOC_TYPE.ANN }]
+      [ANN_COL, { docType: DOC_TYPE.ANN }],
+      ['suggestions', { isDeleted: { $ne: true } }],
+      ['moduleAssessments', { isDeleted: { $ne: true } }]
     ];
     for (const [collection, query] of jobs) {
       warm(collectionKey(collection, query), async () => {
