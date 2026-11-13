@@ -16,6 +16,8 @@ import Config from './views/config.js';
 import Suggestions from './views/suggestions.js';
 import AiHazard from './views/ai_hazard.js';
 import Assessments from './views/assessments.js';
+import WorkPermits from './views/work_permits.js';
+import Trainings from './views/trainings.js';
 
 const { createApp, computed, watch, onMounted, ref } = Vue;
 
@@ -32,6 +34,9 @@ const menus = [
   { path: '/ai-hazard', title: 'AI 隐患识别', icon: 'MagicStick' },
   // 模块考核落实单：仅安环部（含管理员）可见入口；被审核人本人通过详情可见数据
   { path: '/assessments', title: '模块考核落实单', icon: 'Files', safetyEnvOnly: true },
+  // 作业票签批（动火/密闭空间/高空）与安全教育培训：对齐 APK「我的」模块，全员可见
+  { path: '/work-permits', title: '作业票签批', icon: 'Tickets' },
+  { path: '/trainings', title: '安全教育培训', icon: 'Reading' },
   // 业务类型 / 隐患类别字典维护 —— 仅管理员，字典新增后还要回用户管理赋权
   { path: '/config', title: '配置管理', icon: 'Setting', adminOnly: true }
 ];
@@ -47,6 +52,8 @@ const viewMap = {
   '/suggestions': Suggestions,
   '/ai-hazard': AiHazard,
   '/assessments': Assessments,
+  '/work-permits': WorkPermits,
+  '/trainings': Trainings,
   '/config': Config
 };
 

@@ -120,7 +120,10 @@ const COLLECTION_TTL = {
   message: 60 * 1000,
   announcement: 60 * 1000,
   suggestions: 60 * 1000,
-  moduleAssessments: 60 * 1000
+  moduleAssessments: 60 * 1000,
+  work_permits: 60 * 1000,
+  training_resources: 5 * 60 * 1000,
+  training_records: 60 * 1000
 };
 
 // 是否写入 localStorage（仅内存缓存则刷新页面即失效）。
@@ -650,6 +653,89 @@ export const api = {
     return r;
   },
 
+  // ---------- 作业票签批（集合 work_permits） ----------
+  // 与设计文档对齐：移动端 / 电脑端读写同一集合，数据天然一致。
+  // 类型中文同移动端 permitTypeName；状态中文同 permitStatusName。
+  workPermits: async (params = {}) => {
+    const all = await queryCollection('work_permits');
+    const kw = (params.keyword || '').trim();
+    let list = (all || []).filter((p) => !p.isDeleted && p.status !== 'deleted');
+    if (params.type && params.type !== 'all') list = list.filter((p) => (p.permitType || '') === params.type);
+    if (params.status && params.status !== 'all') list = list.filter((p) => (p.status || '') === params.status);
+    if (params.workshop && params.workshop !== 'all') list = list.filter((p) => (p.workshop || '') === params.workshop);
+    if (kw) list = list.filter((p) =>
+      (p.title || '').indexOf(kw) >= 0 || (p.applicantName || '').indexOf(kw) >= 0 ||
+      (p.location || '').indexOf(kw) >= 0 || (p.workshop || '').indexOf(kw) >= 0 ||
+      String(p.id || p._id || '').indexOf(kw) >= 0);
+    list = [...list].sort((a, b) => fmt(b.createdAt || '').localeCompare(fmt(a.createdAt || '')));
+    return paginate(list, params.page, params.size);
+  },
+  createWorkPermit: async (p) => {
+    const r = await rpc('add', { collection: 'work_permits', data: p });
+    invalidate(cachePrefix('work_permits'));
+    return r;
+  },
+  updateWorkPermit: async (id, p) => {
+    const q = id.length > 24 ? { id } : { _id: id };
+    const r = await rpc('update', { collection: 'work_permits', query: q, data: p });
+    invalidate(cachePrefix('work_permits'));
+    return r;
+  },
+  deleteWorkPermit: async (id) => {
+    const q = id.length > 24 ? { id } : { _id: id };
+    const r = await rpc('update', {
+      collection: 'work_permits',
+      query: q,
+      data: { isDeleted: true, deletedAt: new Date().toISOString() }
+    });
+    invalidate(cachePrefix('work_permits'));
+    return r;
+  },
+
+  // ---------- 培训资源（集合 training_resources） ----------
+  // 轻量化：仅存元数据 + 外链（政府权威源）/ 云端 URL（内部课件），媒体不落地本地。
+  trainingResources: async (params = {}) => {
+    const all = await queryCollection('training_resources');
+    const kw = (params.keyword || '').trim();
+    let list = (all || []).filter((r) => r.status !== 'deleted' && !r.isDeleted);
+    if (params.category && params.category !== 'all') list = list.filter((r) => (r.category || '') === params.category);
+    if (params.source && params.source !== 'all') list = list.filter((r) => (r.source || '') === params.source);
+    if (kw) list = list.filter((r) => (r.title || '').indexOf(kw) >= 0 || (r.summary || '').indexOf(kw) >= 0);
+    list = [...list].sort((a, b) => fmt(b.createdAt || '').localeCompare(fmt(a.createdAt || '')));
+    return paginate(list, params.page, params.size);
+  },
+  createTrainingResource: async (r) => {
+    const d = await rpc('add', { collection: 'training_resources', data: r });
+    invalidate(cachePrefix('training_resources'));
+    return d;
+  },
+  updateTrainingResource: async (id, r) => {
+    const q = id.length > 24 ? { id } : { _id: id };
+    const d = await rpc('update', { collection: 'training_resources', query: q, data: r });
+    invalidate(cachePrefix('training_resources'));
+    return d;
+  },
+
+  // ---------- 培训记录（集合 training_records） ----------
+  // 一人一档明细：学习时长 / 考试成绩 / 竞赛得分（3号令 §22 如实记录）。
+  trainingRecords: async (params = {}) => {
+    const all = await queryCollection('training_records');
+    const kw = (params.keyword || '').trim();
+    let list = (all || []).filter((r) => r.status !== 'deleted' && !r.isDeleted);
+    if (params.type && params.type !== 'all') list = list.filter((r) => (r.type || '') === params.type);
+    if (params.person && params.person.trim()) list = list.filter((r) => (r.personName || '').indexOf(params.person.trim()) >= 0);
+    if (params.dept && params.dept !== 'all') list = list.filter((r) => (r.deptCode || '') === params.dept);
+    if (kw) list = list.filter((r) =>
+      (r.personName || '').indexOf(kw) >= 0 || (r.content || '').indexOf(kw) >= 0 || (r.deptCode || '').indexOf(kw) >= 0);
+    list = [...list].sort((a, b) => fmt(b.at || '').localeCompare(fmt(a.at || '')));
+    return paginate(list, params.page, params.size);
+  },
+  createTrainingRecord: async (r) => {
+    const d = await rpc('add', { collection: 'training_records', data: r });
+    invalidate(cachePrefix('training_records'));
+    return d;
+  },
+
   // ---------- 缓存 ----------
   // 后台预热：登录后把各集合提前取回，之后切换页面/打开弹窗即可即时渲染。
   // 不 await、失败静默，绝不阻塞登录流程。
@@ -661,7 +747,10 @@ export const api = {
       ['departments', {}],
       [ANN_COL, { docType: DOC_TYPE.ANN }],
       ['suggestions', { isDeleted: { $ne: true } }],
-      ['moduleAssessments', { isDeleted: { $ne: true } }]
+      ['moduleAssessments', { isDeleted: { $ne: true } }],
+      ['work_permits', { isDeleted: { $ne: true } }],
+      ['training_resources', { isDeleted: { $ne: true } }],
+      ['training_records', { isDeleted: { $ne: true } }]
     ];
     for (const [collection, query] of jobs) {
       warm(collectionKey(collection, query), async () => {
