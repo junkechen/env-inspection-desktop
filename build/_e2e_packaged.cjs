@@ -8,6 +8,7 @@ const os = require('os');
 const ROOT = path.resolve(__dirname, '..');
 const EXE = path.join(ROOT, 'dist_release', 'win-unpacked', 'GZ环保巡查管理系统.exe');
 const OUT = path.join(ROOT, '..', '_e2e_out');
+const APP_VER = JSON.parse(fs.readFileSync(path.join(ROOT, 'version.json'), 'utf8')).version;
 const P = 9355;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const GW = 'https://anuanbu1-1-6gjqaydwd067dbb1-1421679372.ap-shanghai.app.tcloudbase.com/api';
@@ -72,7 +73,8 @@ function check(s, ok, d) { results.push({ s, ok }); console.log(`${ok ? 'PASS' :
   const ROUTES = [
     ['/', '仪表盘'], ['/suggestions', '合理化建议'], ['/ai-hazard', 'AI 隐患识别'],
     ['/assessments', '模块考核落实单'], ['/hazards', '隐患管理'], ['/announcements', '公告栏'],
-    ['/messages', '消息催办'], ['/departments', '部门/车间'], ['/users', '用户管理'], ['/config', '配置管理']
+    ['/messages', '消息催办'], ['/departments', '部门/车间'], ['/users', '用户管理'],
+    ['/work-permits', '作业票签批'], ['/trainings', '安全教育培训'], ['/config', '配置管理']
   ];
   for (const [p, name] of ROUTES) {
     await ev(`(() => { location.hash = ${JSON.stringify('#' + p)}; return 1; })()`);
@@ -118,7 +120,10 @@ function check(s, ok, d) { results.push({ s, ok }); console.log(`${ok ? 'PASS' :
     const cfg = await window.electronAPI.getUpdateConfig().catch(() => null);
     return { version: v, hasUpdateCfg: !!cfg, keys: Object.keys(window.electronAPI) };
   })()`);
-  check('electronAPI 注入完整且版本为 1.0.33', String(ipc.version).indexOf('1.0.33') === 0 && ipc.keys.includes('saveXlsxEnhanced') && ipc.keys.includes('exportPdf'), ipc);
+  check('electronAPI 注入完整且版本为 v' + APP_VER,
+    String(ipc.version).indexOf(APP_VER) === 0 &&
+    ipc.keys.includes('saveXlsxEnhanced') && ipc.keys.includes('exportPdf') &&
+    ipc.keys.includes('showItemInFolder'), ipc);
 
   const shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(OUT, 'packaged_login.png'), Buffer.from(shot.data, 'base64'));

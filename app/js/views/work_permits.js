@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { isAdmin, isSafetyEnvStaff } from '../permission.js';
+import { showExportResult } from '../export_utils.js';
 
 // 作业票签批（电脑端台账 + 签批）
 // 数据集合 work_permits 与移动端（env_inspection_v370/lib/models/work_permit.dart）同源共享，
@@ -102,6 +103,137 @@ function emptyForm() {
   });
 }
 
+// ---------- 作业票 PDF：两页 A4（对齐移动端 work_permit_export_service.dart） ----------
+// 第 1 页《作业许可证》：票面信息 + 作业内容 + 危险有害因素辨识
+// 第 2 页《安全措施与审批记录》：措施卡勾选 / 气体检测 / 作业人员 / 审批链签字（含状态、笔迹图）
+// buildPdfHtml 是隐患台账专用模板，这里另写票面版式，但复用同一个 exportPdf 通道
+// （window.electronAPI.exportPdf → 主进程 printToPDF），与 hazards.js / assessments.js 一致。
+function ts() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function isHttpUrl(u) { return typeof u === 'string' && /^https?:\/\//i.test(u); }
+
+function buildWorkPermitPdf(p) {
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const dt = (v) => (v ? String(v).slice(0, 19).replace('T', ' ') : '—');
+  const val = (v) => esc(v == null || v === '' ? '—' : v);
+  const sigs = Array.isArray(p.signatures) ? p.signatures : [];
+  const workers = Array.isArray(p.workers) ? p.workers : [];
+  const measures = Array.isArray(p.measures) ? p.measures : [];
+  const gas = Array.isArray(p.gasAnalysis) ? p.gasAnalysis : [];
+  const findSig = (node) => sigs.find((s) => s.node === node);
+
+  // 监护人证号 / 交底人：电脑端台账未单列这两个字段，优先取移动端同步过来的字段，
+  // 再从「作业人员」「签字链」兜底，取不到显示「—」，保证两页都能打印完整。
+  const guardianWorker = workers.find((w) => /监护/.test(w.role || '')) || {};
+  const guardianCert = p.guardianCertNo || guardianWorker.certNo || '';
+  const guardianName = p.guardianName || guardianWorker.name || '';
+  const guardian = (guardianName || guardianCert)
+    ? (guardianName || '监护人') + (guardianCert ? '（证号 ' + guardianCert + '）' : '')
+    : '—';
+  const discloser = p.discloserName || (findSig('disclose') || {}).signerName || '—';
+
+  const row4 = (k1, v1, k2, v2) =>
+    `<tr><th>${esc(k1)}</th><td>${val(v1)}</td><th>${esc(k2)}</th><td>${val(v2)}</td></tr>`;
+
+  // ===== 第 1 页：许可票面 =====
+  const page1 = `
+    <h1>${esc(p.permitType || '作业许可证')}</h1>
+    <div class="sub">${p.level ? '（' + esc(p.level) + '）' : ''}　票号：${esc(p.id || p._id || '')}</div>
+    <table class="kv">
+      ${row4('属地车间', p.workshop || p.workshopName, '申请人', p.applicantName)}
+      ${row4('作业地点', p.location, '作业分级', p.level)}
+      ${row4('监护人（证号）', guardian, '交底人', discloser)}
+      ${row4('计划开始', dt(p.planStart), '计划结束', dt(p.planEnd))}
+      ${row4('实际作业起', dt(p.effectiveStart), '有效期至', dt(p.expireAt))}
+      ${row4('申请日期', dt(p.createdAt), '状态', p.status)}
+    </table>
+    <div class="box"><b>作业内容与方式：</b><div class="cnt">${val(p.jobContent || p.title)}</div></div>
+    <div class="box"><b>危险有害因素辨识：</b><div class="cnt">${val(p.riskAnalysis)}</div></div>
+    <div class="note">说明：本票按公司作业许可管理制度执行；作业前须逐项确认安全措施，气体检测合格后方可作业；有效期届满或中断作业超时须重新办理。</div>
+    <div class="foot">GZ 环保巡查管理系统 · 作业票（第 1 页 / 共 2 页）</div>`;
+
+  // ===== 第 2 页：措施 / 气体 / 人员 / 审批链 =====
+  const measureRows = measures.length ? measures.map((m, i) =>
+    `<div class="chk-line"><span class="chk">${m.checked ? '√' : ''}</span>${i + 1}. ${val(m.text)}` +
+    `<span class="who">${m.confirmedBy ? '　确认人：' + esc(m.confirmedBy) + ' ' + esc(dt(m.confirmedAt)) : ''}</span></div>`
+  ).join('') : '<div class="muted">暂无安全措施记录</div>';
+
+  const gasBlock = gas.length
+    ? `<table class="grid"><thead><tr><th>检测时间</th><th>部位</th><th>O₂%</th><th>可燃%LEL</th><th>有毒气体</th><th>检测人</th><th>结论</th></tr></thead><tbody>` +
+      gas.map((g) => `<tr><td>${esc(dt(g.sampledAt))}</td><td>${val(g.point)}</td><td>${val(g.o2)}</td><td>${val(g.combustible)}</td><td>${val(g.toxic)}</td><td>${val(g.analyst)}</td><td>${val(g.result)}</td></tr>`).join('') +
+      `</tbody></table>`
+    : '<div class="muted">暂无气体检测记录</div>';
+
+  const workerBlock = workers.length
+    ? `<table class="grid"><thead><tr><th>序号</th><th>姓名</th><th>岗位/角色</th><th>特种作业证号</th></tr></thead><tbody>` +
+      workers.map((w, i) => `<tr><td>${i + 1}</td><td>${val(w.name)}</td><td>${val(w.role)}</td><td>${val(w.certNo)}</td></tr>`).join('') +
+      `</tbody></table>`
+    : '<div class="muted">暂无作业人员记录</div>';
+
+  // 审批链：固定节点序列（对齐移动端 SignNode），按是否有签字给出「已签 / 待签」状态
+  const chain = ['apply', 'disclose', 'siteConfirm', 'approve', 'close'];
+  const chainRows = chain.map((node, i) => {
+    const s = findSig(node) || {};
+    const signed = !!s.signerName;
+    return `<tr><td>${i + 1}</td><td>${esc(NODE_NAME[node] || node)}</td><td>${val(s.signerName)}</td><td>${val(s.role)}</td>` +
+      `<td class="${signed ? 'ok' : 'wait'}">${signed ? '已签' : '待签'}</td><td>${esc(s.signedAt ? dt(s.signedAt) : '—')}</td></tr>`;
+  }).join('');
+  // 手写签字笔迹：移动端同步过来的 http/https 图片 URL 用 <img> 内嵌（与落实单导出一致）
+  const penImgs = sigs.filter((s) => isHttpUrl(s.imageUrl)).map((s) =>
+    `<div class="pen"><div>${esc(NODE_NAME[s.node] || s.node || '签字')} · ${val(s.signerName)}</div>` +
+    `<img src="${esc(s.imageUrl)}" /><div>${esc(s.signedAt ? dt(s.signedAt) : '')}</div></div>`
+  ).join('');
+
+  const page2 = `
+    <h2>安全措施确认与审批签字页</h2>
+    <div class="sec">一、安全措施卡（√＝已确认落实）</div><div class="chk-box">${measureRows}</div>
+    <div class="sec">二、气体检测记录</div>${gasBlock}
+    <div class="sec">三、作业人员（含持证情况）</div>${workerBlock}
+    <div class="sec">四、审批链签字记录（${sigs.filter((s) => s.signerName).length}/${chain.length} 已签）</div>
+    <table class="grid"><thead><tr><th>序</th><th>签字节点</th><th>签字人</th><th>角色</th><th>状态</th><th>签字时间</th></tr></thead><tbody>${chainRows}</tbody></table>
+    ${penImgs ? `<div class="sec">五、签字笔迹</div><div class="pens">${penImgs}</div>` : ''}
+    ${p.remark ? `<div class="box"><b>备注/驳回·中止·作废原因：</b><div class="cnt">${val(p.remark)}</div></div>` : ''}
+    <div class="foot">状态：${val(p.status)}　｜　导出时间：${esc(dt(new Date().toISOString()))}　｜　第 2 页 / 共 2 页</div>`;
+
+  const css = `
+    @page{size:A4;margin:0} *{box-sizing:border-box}
+    body{margin:0;font-family:"Microsoft YaHei","SimSun",sans-serif;color:#111;font-size:12px}
+    .page{padding:14mm 12mm;min-height:297mm;page-break-after:always}
+    .page:last-child{page-break-after:auto}
+    h1{font-size:20px;text-align:center;margin:0 0 4px;border-bottom:2px solid #1f8a4c;padding-bottom:8px}
+    .sub{text-align:center;color:#555;margin:6px 0 14px}
+    h2{font-size:16px;text-align:center;margin:0 0 12px}
+    table{border-collapse:collapse;width:100%;margin-bottom:10px}
+    th,td{border:1px solid #333;padding:5px 7px;vertical-align:top;text-align:left}
+    table.kv th{background:#eef6f0;width:96px;font-weight:bold}
+    table.grid th{background:#f0f0f0;font-weight:bold;font-size:11px}
+    table.grid td{font-size:11px}
+    td.ok{color:#0f7b3f;font-weight:bold} td.wait{color:#a06100}
+    .box{border:1px solid #333;padding:8px;margin-bottom:10px}
+    .cnt{margin-top:6px;white-space:pre-wrap;line-height:1.6;min-height:46px}
+    .note{border:1px solid #999;background:#f7f7f7;padding:8px;color:#555;font-size:11px;line-height:1.6;margin-top:8px}
+    .sec{background:#e8e8e8;font-weight:bold;padding:5px 8px;margin:12px 0 6px;border-left:4px solid #1f8a4c;font-size:12px}
+    .chk-box{border:1px solid #333;padding:8px}
+    .chk-line{padding:3px 0;line-height:1.5}
+    .chk{display:inline-block;width:12px;height:12px;border:1px solid #333;text-align:center;line-height:12px;font-size:11px;margin-right:6px}
+    .who{color:#666;font-size:11px}
+    .muted{color:#888;font-size:11px;padding:4px 0}
+    .pens{display:flex;flex-wrap:wrap;gap:10px}
+    .pen{border:1px solid #ccc;padding:5px;width:160px;font-size:10px}
+    .pen img{width:150px;height:46px;object-fit:contain;background:#fff}
+    .foot{margin-top:16px;color:#666;font-size:10px;text-align:right;border-top:1px dashed #ccc;padding-top:6px}`;
+
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8" /><style>${css}</style></head><body>
+    <div class="page">${page1}</div>
+    <div class="page">${page2}</div>
+  </body></html>`;
+}
+
 export default {
   template: `
   <div>
@@ -122,6 +254,7 @@ export default {
       <el-button :icon="Refresh" @click="reset">重置</el-button>
       <span class="spacer"></span>
       <el-button type="success" :icon="Plus" @click="openCreate">发起作业票</el-button>
+      <el-button type="warning" :icon="Printer" :loading="exporting" @click="exportPdf">导出PDF</el-button>
       <el-button type="warning" :icon="Download" :loading="exporting" @click="exportExcel">导出Excel</el-button>
     </div>
 
@@ -241,6 +374,7 @@ export default {
 
         <!-- 流转操作 -->
         <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;border-top:1px solid #334155;padding-top:14px">
+          <el-button :icon="Printer" @click="exportPdfOne(current)">导出本票PDF</el-button>
           <el-button v-if="canSiteConfirm(current)" type="primary" :icon="Select" @click="flow('siteConfirm','现场确认')">现场确认</el-button>
           <el-button v-if="canApprove(current)" type="success" :icon="Stamp" @click="flow('approve','分级审批')">分级审批</el-button>
           <el-button v-if="canStartWork(current)" type="warning" :icon="VideoPlay" @click="flow('startWork','开工')">开工（计时起点）</el-button>
@@ -309,6 +443,13 @@ export default {
   </div>
   `,
   setup() {
+    // 与其余视图一致：从 ElementPlus 取 ElMessage（原文件裸用 ElMessage 未解构，
+    // 在渲染进程里会 ReferenceError，这里补齐，纯新增修复）。
+    const { ElMessage } = (typeof ElementPlus !== 'undefined' ? ElementPlus : {});
+    // 图标组件：与 assessments.js / departments.js 一样从 ElementPlusIconsVue 取；
+    // 加了 typeof 守卫，保证纯 Node 环境（单测/静态分析）也不会因全局缺失而崩。
+    const { Search, Refresh, Plus, View, Download, Printer, ArrowLeft, Delete, Select, Stamp, VideoPlay, CircleCheck, Finished, VideoPause, Close } =
+      (typeof ElementPlusIconsVue !== 'undefined' ? ElementPlusIconsVue : {});
     const list = ref([]);
     const total = ref(0);
     const page = ref(1);
@@ -512,6 +653,35 @@ export default {
       finally { saving.value = false; }
     }
 
+    // 导出单张作业票（两页 A4）；导出完成后弹出「打开所在文件夹 / 另存为 / 复制路径」
+    async function exportPdfOne(p) {
+      if (!p) return;
+      if (!window.electronAPI) { ElMessage.error('本地导出能力不可用'); return; }
+      exporting.value = true;
+      try {
+        const html = buildWorkPermitPdf(p);
+        const defaultName = '作业票_' + (p.permitType || '') + '_' + (p.id || p._id || 'WP') + '_' + ts() + '.pdf';
+        const res = await window.electronAPI.exportPdf({ defaultName, html });
+        await showExportResult(res, { defaultName, html, summary: '作业票 PDF 已生成（两页 A4：票面信息 + 安全措施/气体检测/作业人员/审批链签字）。' });
+      } catch (e) { ElMessage.error(e.message || '导出失败'); }
+      finally { exporting.value = false; }
+    }
+    // 批量导出当前筛选结果，每张票两页 A4（与 assessments.js 的多单拼接写法一致）
+    async function exportPdf() {
+      if (!window.electronAPI) { ElMessage.error('本地导出能力不可用'); return; }
+      exporting.value = true;
+      try {
+        const r = await api.workPermits({ keyword: kw.value, type: filterType.value, status: filterStatus.value, page: 1, size: 0 });
+        const all = r.list || [];
+        if (!all.length) { ElMessage.warning('当前筛选无数据可导出'); return; }
+        const html = all.map(buildWorkPermitPdf).join('<div style="page-break-before:always"></div>');
+        const defaultName = 'GZ作业票_' + ts() + '.pdf';
+        const res = await window.electronAPI.exportPdf({ defaultName, html });
+        await showExportResult(res, { defaultName, html, summary: '已导出 ' + all.length + ' 张作业票 PDF（每张两页 A4）。' });
+      } catch (e) { ElMessage.error(e.message || '导出失败'); }
+      finally { exporting.value = false; }
+    }
+
     async function exportExcel() {
       if (!window.XLSX) { ElMessage.error('Excel 组件未加载，请重启客户端'); return; }
       if (!window.electronAPI) { ElMessage.error('本地导出能力不可用'); return; }
@@ -531,8 +701,7 @@ export default {
         const b64 = window.XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
         const ts = (() => { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; })();
         const res = await window.electronAPI.saveXlsxEnhanced({ defaultName: 'GZ作业票_' + ts + '.xlsx', buffer: b64, plan: {} });
-        if (res && res.error) ElMessage.error('导出失败：' + res.error);
-        else if (res && !res.canceled) ElMessage.success('Excel 已保存：' + res.filePath);
+        await showExportResult(res, { onSaveAs: () => exportExcel(), summary: 'GZ 作业票 Excel 台账已生成。' });
       } catch (e) { ElMessage.error(e.message || '导出失败'); }
       finally { exporting.value = false; }
     }
@@ -542,10 +711,10 @@ export default {
     return {
       TYPE_OPTS, STATUS_OPTS, NODE_NAME, list, total, page, size, loading, kw, filterType, filterStatus,
       exporting, detailVisible, current, createVisible, gasVisible, saving, form, gasForm, me, levelOpts, validityHint, lastSignedIdx,
-      statusClass, fmtDate, isCloudUrl,
+      statusClass, fmtDate, isCloudUrl, myName,
       canSiteConfirm, canApprove, canStartWork, canFinish, canClose, canSuspend, canResume, canReject, canVoid, canGas, hasAction,
-      search, reset, onPage, onSize, openDetail, flow, flowPrompt, saveGas, onTypeChange, openCreate, submitCreate, exportExcel,
-      Search, Refresh, Plus, View, Download, ArrowLeft, Delete, Select, Stamp, VideoPlay, CircleCheck, Finished, VideoPause, Close
+      search, reset, onPage, onSize, openDetail, flow, flowPrompt, saveGas, onTypeChange, openCreate, submitCreate, exportExcel, exportPdf, exportPdfOne,
+      Search, Refresh, Plus, View, Download, Printer, ArrowLeft, Delete, Select, Stamp, VideoPlay, CircleCheck, Finished, VideoPause, Close
     };
   }
 };

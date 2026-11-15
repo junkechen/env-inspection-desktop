@@ -39,12 +39,20 @@ function check(step, ok, detail) { results.push({ step, ok }); console.log(`${ok
         saveBuffer: (p) => { window.__e2eExports.xlsx.push({ name: p && p.defaultName, len: 0 }); return Promise.resolve({ canceled: false }); },
         exportPdf: (p) => { window.__e2eExports.pdf.push({ name: p && p.defaultName, htmlLen: (p && p.html || '').length, hasTable: /<table/i.test(p && p.html || '') }); return Promise.resolve({ canceled: false, filePath: 'C:/tmp/' + (p && p.defaultName) }); },
         fetchImageUrl: () => Promise.resolve(''),
-        getAppVersion: () => Promise.resolve('1.0.33-e2e'),
+        getAppVersion: () => Promise.resolve('1.0.35-e2e'),
         getUpdateConfig: () => Promise.resolve({}),
         fetchText: () => Promise.resolve(''),
-        openExternal: () => Promise.resolve(true)
+        openExternal: () => Promise.resolve(true),
+        // v1.0.35 新增：导出结果弹窗「打开所在文件夹」依赖此 IPC；
+        // 桩里补齐，否则 showExportResult 会走 ElMessageBox.alert 降级并让 exporting 一直挂起。
+        showItemInFolder: () => Promise.resolve({ ok: true })
       };`
   });
+
+  // 每次导出后清理结果弹窗遮罩，避免遮挡后续按钮点击
+  const clearMask = `(() => { const m=document.querySelector('.gz-export-result-mask'); if(m) m.remove();
+    const c=[...document.querySelectorAll('.el-message-box__btns button')].find(b=>/知道了/.test(b.innerText||'')); if(c) c.click();
+    return true; })()`;
 
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/` });
   await sleep(3000);
@@ -75,6 +83,14 @@ function check(step, ok, detail) { results.push({ step, ok }); console.log(`${ok
     return { clicked:true, pdf: window.__e2eExports.pdf.slice() };
   })()`);
   check('落实单 PDF 导出生成模板 HTML', asmPdf.clicked && asmPdf.pdf.length > 0 && asmPdf.pdf[0].htmlLen > 500 && asmPdf.pdf[0].hasTable, asmPdf);
+  // 断言导出结果弹窗三动作存在（v1.0.35 新增能力）
+  const dlg = await ev(`(() => {
+    const m = document.querySelector('.gz-export-result-mask');
+    if (!m) return { open: false };
+    return { open: true, acts: [...m.querySelectorAll('[data-act]')].map(b => b.getAttribute('data-act')) };
+  })()`);
+  check('导出结果弹窗含打开文件夹/另存为/复制路径', dlg.open && ['reveal', 'saveas', 'copy', 'close'].every(a => dlg.acts.includes(a)), dlg);
+  await ev(clearMask);
 
   const asmXlsx = await ev(`(async () => {
     const before = window.__e2eExports.xlsx.length;
@@ -85,6 +101,7 @@ function check(step, ok, detail) { results.push({ step, ok }); console.log(`${ok
     return { clicked:true, added: window.__e2eExports.xlsx.slice(before) };
   })()`);
   check('落实单 Excel 导出产出非空文件', asmXlsx.clicked && asmXlsx.added.length > 0 && asmXlsx.added[0].len > 1000, asmXlsx);
+  await ev(clearMask);
 
   // ---- 隐患模块（既有功能不回归）----
   await ev(`(() => { location.hash='#/hazards'; return 1; })()`); await sleep(3000);

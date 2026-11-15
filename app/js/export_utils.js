@@ -591,3 +591,159 @@ export function buildPdfHtml(issues, meta) {
     ${sections}
   </body></html>`;
 }
+
+// ============================================================
+// 导出结果弹窗（v1.0.35 新增）
+// ============================================================
+// 对齐移动端 mgmt_export_dialog.dart 的「分享 / 另存」：安卓用系统分享面板
+// （Share.shareXFiles），电脑端没有该面板，等价提供三个动作：
+//   ① 打开所在文件夹 —— 走主进程 shell.showItemInFolder（preload 暴露 showItemInFolder）；
+//   ② 另存为 —— 用同一份导出内容再弹一次保存对话框，另存一个副本；
+//   ③ 复制路径 —— 写入系统剪贴板，便于发给同事。
+// 若拿不到 shell（纯浏览器调试 / 旧壳未暴露该能力），降级为 ElMessageBox
+// 展示「可复制路径 + 提示」，不阻断主流程。
+//
+// 说明：ElMessageBox 只有 confirm / cancel 两个按钮，而这里需要三个并列动作，
+// 所以成功态用一个轻量自定义遮罩（按钮复用 Element Plus 的 el-button 样式，
+// 视觉与现有弹窗一致），提示仍走 ElMessage / ElMessageBox。
+// 本函数只在浏览器里被调用，所有 DOM / 全局引用均惰性读取，不影响 Node 侧单测。
+
+const EXPORT_RESULT_STYLE_ID = 'gz-export-result-style';
+
+function ensureExportResultStyle() {
+  if (typeof document === 'undefined' || !document.head) return;
+  if (document.getElementById(EXPORT_RESULT_STYLE_ID)) return;
+  const st = document.createElement('style');
+  st.id = EXPORT_RESULT_STYLE_ID;
+  st.textContent = [
+    '.gz-export-result-mask{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;display:flex;align-items:center;justify-content:center}',
+    '.gz-export-result-box{width:540px;max-width:92vw;background:#fff;border-radius:8px;padding:20px 22px;box-shadow:0 8px 32px rgba(0,0,0,.28);font-family:"Microsoft YaHei",sans-serif;color:#1f2d28;font-size:14px}',
+    '.gz-export-result-title{font-size:16px;font-weight:600;color:#0f5a32;margin-bottom:10px}',
+    '.gz-export-result-summary{color:#555;line-height:1.6;margin-bottom:12px}',
+    '.gz-export-result-label{color:#909399;font-size:12px;margin:8px 0 4px}',
+    '.gz-export-result-path{width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #dcdfe6;border-radius:4px;font-size:12px;color:#303133;background:#f7f9f8;user-select:text}',
+    '.gz-export-result-hint{color:#909399;font-size:12px;line-height:1.6;margin:10px 0 16px}',
+    '.gz-export-result-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}'
+  ].join('');
+  document.head.appendChild(st);
+}
+
+// 复制路径：优先 navigator.clipboard，失败降级为 textarea + execCommand（老 Chromium 可用）
+function legacyCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', 'readonly');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch (e) { return false; }
+}
+function copyToClipboard(text) {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(() => true, () => legacyCopy(text));
+    }
+  } catch (e) { /* 权限/非安全上下文：走降级 */ }
+  return Promise.resolve(legacyCopy(text));
+}
+
+/**
+ * 导出完成后弹出结果对话框（三个动作）。
+ * @param {object} result  electronAPI.exportPdf / saveXlsxEnhanced 的返回值 { canceled, filePath, error }
+ * @param {object} opts    { defaultName, html, summary, onSaveAs }
+ *   - html / defaultName：用于「另存为」再次导出同一份 PDF；
+ *   - onSaveAs：可选回调（Excel 等无 html 的导出由调用方自行重跑）；
+ *   - summary：结果说明文本。
+ * @returns {Promise<boolean>} 是否成功产出文件
+ */
+export async function showExportResult(result, opts = {}) {
+  const EP = (typeof ElementPlus !== 'undefined') ? ElementPlus : null;
+  const tip = EP && EP.ElMessage ? EP.ElMessage : null;
+  const say = (fn, text) => { if (tip && typeof tip[fn] === 'function') tip[fn](text); };
+
+  if (!result || result.canceled) return false;                     // 用户取消：不打扰
+  if (result.error) { say('error', '导出失败：' + result.error); return false; }
+  const filePath = String(result.filePath || '');
+  if (!filePath) { say('error', '导出失败：未返回文件路径'); return false; }
+
+  const api = (typeof window !== 'undefined') ? window.electronAPI : null;
+  const reveal = (api && typeof api.showItemInFolder === 'function')
+    ? () => api.showItemInFolder(filePath) : null;
+  const canSaveAs = !!(typeof opts.onSaveAs === 'function' ||
+    (api && typeof api.exportPdf === 'function' && typeof opts.html === 'string' && opts.html));
+  const summary = String(opts.summary || '文件已生成，可定位、另存或复制路径。');
+
+  // 降级：拿不到 shell → 只展示可复制路径 + 提示（ElMessageBox）
+  if (!reveal) {
+    if (EP && EP.ElMessageBox && typeof EP.ElMessageBox.alert === 'function') {
+      const msg = '<div style="line-height:1.7">'
+        + '<div>' + escapeHtml(summary) + '</div>'
+        + '<div style="color:#909399;font-size:12px;margin:10px 0 4px">保存路径（可复制）</div>'
+        + '<input readonly value="' + escapeHtml(filePath) + '" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #dcdfe6;border-radius:4px;font-size:12px" />'
+        + '<div style="color:#909399;font-size:12px;margin-top:10px">当前环境未暴露 shell.showItemInFolder，无法「打开所在文件夹 / 系统分享」。请手动复制上方路径，在文件管理器中打开或发给同事。</div>'
+        + '</div>';
+      try {
+        await EP.ElMessageBox.alert(msg, '导出完成', { dangerouslyUseHTMLString: true, confirmButtonText: '知道了' });
+      } catch (e) { /* 关闭 */ }
+    } else {
+      say('success', '已导出：' + filePath);
+    }
+    return true;
+  }
+
+  // 正常态：三动作自定义弹窗
+  ensureExportResultStyle();
+  const mask = document.createElement('div');
+  mask.className = 'gz-export-result-mask';
+  mask.innerHTML = '<div class="gz-export-result-box">'
+    + '<div class="gz-export-result-title">✓ 导出完成</div>'
+    + '<div class="gz-export-result-summary">' + escapeHtml(summary) + '</div>'
+    + '<div class="gz-export-result-label">保存路径（可复制）</div>'
+    + '<input class="gz-export-result-path" readonly value="' + escapeHtml(filePath) + '" />'
+    + '<div class="gz-export-result-hint">电脑端无系统分享面板：可「打开所在文件夹」定位文件、「另存为」保存副本、「复制路径」发给同事。</div>'
+    + '<div class="gz-export-result-actions">'
+    + '<button type="button" class="el-button el-button--primary el-button--small" data-act="reveal">打开所在文件夹</button>'
+    + '<button type="button" class="el-button el-button--small" data-act="saveas"' + (canSaveAs ? '' : ' disabled') + '>另存为</button>'
+    + '<button type="button" class="el-button el-button--small" data-act="copy">复制路径</button>'
+    + '<button type="button" class="el-button el-button--small" data-act="close">关闭</button>'
+    + '</div></div>';
+  document.body.appendChild(mask);
+  const close = () => { if (mask.parentNode) mask.parentNode.removeChild(mask); };
+
+  mask.addEventListener('click', async (ev) => {
+    const btn = ev.target && ev.target.closest ? ev.target.closest('[data-act]') : null;
+    if (!btn) { if (ev.target === mask) close(); return; }
+    const act = btn.getAttribute('data-act');
+    if (act === 'close') { close(); return; }
+    if (act === 'reveal') {
+      try {
+        const r = await reveal();
+        if (r && r.error) say('warning', '无法打开所在文件夹：' + r.error + '，请复制路径手动查找');
+      } catch (e) { say('warning', '无法打开所在文件夹，请复制路径手动查找'); }
+      return;
+    }
+    if (act === 'saveas') {
+      if (!canSaveAs) { say('warning', '当前导出不支持另存为'); return; }
+      close();
+      try {
+        if (typeof opts.onSaveAs === 'function') await opts.onSaveAs();
+        else {
+          const r2 = await api.exportPdf({ defaultName: opts.defaultName || 'export.pdf', html: opts.html });
+          if (r2 && r2.error) say('error', '另存失败：' + r2.error);
+          else if (r2 && !r2.canceled) say('success', '已另存：' + r2.filePath);
+        }
+      } catch (e) { say('error', '另存失败：' + (e && e.message ? e.message : e)); }
+      return;
+    }
+    if (act === 'copy') {
+      const ok = await copyToClipboard(filePath);
+      say(ok ? 'success' : 'warning', ok ? '路径已复制到剪贴板' : '复制失败，请手动选中上方路径复制');
+    }
+  });
+  return true;
+}

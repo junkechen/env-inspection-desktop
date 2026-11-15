@@ -427,3 +427,16 @@ body {
   .stat-grid { grid-template-columns: 1fr; }
   .kpi-row { grid-template-columns: 1fr; }
 }
+
+/* ---------- 培训题库（在线练习 / 安环部确认） ---------- */
+.hint { color: var(--c-text-soft); font-size: 12px; line-height: 1.6; }
+.quiz-card { padding: 14px 16px; margin-bottom: 12px; }
+.quiz-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 8px; }
+.quiz-head b { color: #fff; font-size: 14px; line-height: 1.5; font-weight: 600; }
+.quiz-tag { color: var(--c-text-soft); font-size: 11px; white-space: nowrap; }
+.quiz-explain { margin-top: 10px; font-size: 12px; padding: 8px 10px; border-radius: 6px; }
+.quiz-explain.ok { background: rgba(52,211,153,.10); color: #34d399; }
+.quiz-explain.bad { background: rgba(248,113,113,.10); color: #f87171; }
+.qb-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.qb-stat { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 10px; padding: 12px 14px; color: var(--c-text-soft); font-size: 12px; }
+.qb-stat b { display: block; color: #fff; font-size: 22px; margin-top: 4px; }

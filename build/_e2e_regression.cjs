@@ -196,6 +196,8 @@ class CDP {
     { path: '/messages', name: '消息催办', expect: ['消息'] },
     { path: '/departments', name: '部门/车间', expect: ['部门'] },
     { path: '/users', name: '用户管理', expect: ['用户'] },
+    { path: '/work-permits', name: '作业票签批', expect: ['作业票'] },
+    { path: '/trainings', name: '安全教育培训', expect: ['培训'] },
     { path: '/config', name: '配置管理', expect: ['配置'] }
   ];
 

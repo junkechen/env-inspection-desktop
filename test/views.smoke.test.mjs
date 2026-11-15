@@ -187,7 +187,9 @@ const views = [
   ['部门 departments', '../app/js/views/departments.js'],
   ['合理化建议 suggestions', '../app/js/views/suggestions.js'],
   ['AI隐患识别 ai_hazard', '../app/js/views/ai_hazard.js'],
-  ['模块考核落实单 assessments', '../app/js/views/assessments.js']
+  ['模块考核落实单 assessments', '../app/js/views/assessments.js'],
+  ['作业票签批 work_permits', '../app/js/views/work_permits.js'],
+  ['安全教育培训 trainings', '../app/js/views/trainings.js']
 ];
 
 for (const [label, path] of views) {

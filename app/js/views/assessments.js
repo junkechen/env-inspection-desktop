@@ -6,6 +6,7 @@ import {
 } from '../permission.js';
 import { currentDept } from '../dept.js';
 import { deptOf } from '../business.js';
+import { showExportResult } from '../export_utils.js';
 
 // 模块考核落实单：严格对齐 APK（module_assessment.dart）与纸质模板
 //   status：待确认(issued) → 已确认(confirmed) → 整改中(rectifying) → 已闭环(closed)
@@ -465,9 +466,9 @@ export default {
       exporting.value = true;
       try {
         const html = buildAssessmentPdf(a);
-        const res = await window.electronAPI.exportPdf({ defaultName: '落实单_' + (a.reportNo || 'MK') + '.pdf', html });
-        if (res && res.error) ElMessage.error('导出失败：' + res.error);
-        else if (res && !res.canceled) ElMessage.success('PDF 已保存：' + res.filePath);
+        const defaultName = '落实单_' + (a.reportNo || 'MK') + '.pdf';
+        const res = await window.electronAPI.exportPdf({ defaultName, html });
+        await showExportResult(res, { defaultName, html, summary: '模块考核落实单 PDF 已生成（报告单 + 纠正措施表）。' });
       } catch (e) { ElMessage.error(e.message); }
       finally { exporting.value = false; }
     }
@@ -479,9 +480,9 @@ export default {
         const all = (r.list || []).filter(a => canViewAssessment(me.value, a));
         if (!all.length) { ElMessage.warning('当前筛选无数据可导出'); return; }
         const html = all.map(buildAssessmentPdf).join('<div style="page-break-before:always"></div>');
-        const res = await window.electronAPI.exportPdf({ defaultName: '模块考核落实单_' + ts() + '.pdf', html });
-        if (res && res.error) ElMessage.error('导出失败：' + res.error);
-        else if (res && !res.canceled) ElMessage.success('PDF 已保存：' + res.filePath);
+        const defaultName = '模块考核落实单_' + ts() + '.pdf';
+        const res = await window.electronAPI.exportPdf({ defaultName, html });
+        await showExportResult(res, { defaultName, html, summary: '已导出 ' + all.length + ' 张落实单 PDF（每张含报告单 + 纠正措施表）。' });
       } catch (e) { ElMessage.error(e.message); }
       finally { exporting.value = false; }
     }
@@ -500,8 +501,7 @@ export default {
         window.XLSX.utils.book_append_sheet(wb, ws, '模块考核落实单');
         const b64 = window.XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
         const res = await window.electronAPI.saveXlsxEnhanced({ defaultName: '模块考核落实单_' + ts() + '.xlsx', buffer: b64, plan: {} });
-        if (res && res.error) ElMessage.error('导出失败：' + res.error);
-        else if (res && !res.canceled) ElMessage.success('Excel 已保存：' + res.filePath);
+        await showExportResult(res, { onSaveAs: () => exportExcel(), summary: '模块考核落实单 Excel 台账已生成。' });
       } catch (e) { ElMessage.error(e.message || '导出失败'); }
       finally { exporting.value = false; }
     }

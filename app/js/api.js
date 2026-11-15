@@ -123,7 +123,8 @@ const COLLECTION_TTL = {
   moduleAssessments: 60 * 1000,
   work_permits: 60 * 1000,
   training_resources: 5 * 60 * 1000,
-  training_records: 60 * 1000
+  training_records: 60 * 1000,
+  training_questions: 5 * 60 * 1000
 };
 
 // 是否写入 localStorage（仅内存缓存则刷新页面即失效）。
@@ -736,6 +737,34 @@ export const api = {
     return d;
   },
 
+  // ---------- 培训题库（集合 training_questions，双端共用） ----------
+  // 三态：pending 待确认 / enabled 已启用 / disabled 已停用；安环部确认后生效。
+  // 字段与手机端 TrainingQuestionItem 一致：id/type/stem/options/answer/explain/
+  // category/level/source/sourceRef/status/confirmedBy/confirmedAt/updatedAt。
+  trainingQuestions: async (params = {}) => {
+    const all = await queryCollection('training_questions');
+    const kw = (params.keyword || '').trim();
+    let list = (all || []).filter((q) => !q.isDeleted);
+    if (params.status && params.status !== 'all') list = list.filter((q) => (q.status || '') === params.status);
+    if (params.category && params.category !== 'all') list = list.filter((q) => (q.category || '') === params.category);
+    if (params.type && params.type !== 'all') list = list.filter((q) => (q.type || '') === params.type);
+    if (kw) list = list.filter((q) =>
+      (q.stem || '').indexOf(kw) >= 0 || (q.explain || '').indexOf(kw) >= 0 || (q.sourceRef || '').indexOf(kw) >= 0);
+    list = [...list].sort((a, b) => fmt(b.updatedAt || '').localeCompare(fmt(a.updatedAt || '')));
+    return paginate(list, params.page, params.size);
+  },
+  createTrainingQuestion: async (q) => {
+    const d = await rpc('add', { collection: 'training_questions', data: q });
+    invalidate(cachePrefix('training_questions'));
+    return d;
+  },
+  updateTrainingQuestion: async (id, q) => {
+    const key = String(id).length > 24 ? { _id: id } : { id };
+    const d = await rpc('update', { collection: 'training_questions', query: key, data: q });
+    invalidate(cachePrefix('training_questions'));
+    return d;
+  },
+
   // ---------- 缓存 ----------
   // 后台预热：登录后把各集合提前取回，之后切换页面/打开弹窗即可即时渲染。
   // 不 await、失败静默，绝不阻塞登录流程。
@@ -750,7 +779,8 @@ export const api = {
       ['moduleAssessments', { isDeleted: { $ne: true } }],
       ['work_permits', { isDeleted: { $ne: true } }],
       ['training_resources', { isDeleted: { $ne: true } }],
-      ['training_records', { isDeleted: { $ne: true } }]
+      ['training_records', { isDeleted: { $ne: true } }],
+      ['training_questions', { isDeleted: { $ne: true } }]
     ];
     for (const [collection, query] of jobs) {
       warm(collectionKey(collection, query), async () => {

@@ -17,6 +17,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 返回 { canceled, filePath } 或 { error }
   exportPdf: (payload) => ipcRenderer.invoke('app:export-pdf', payload),
 
+  // 导出结果弹窗「打开所在文件夹」：在系统文件管理器中定位已导出的文件。
+  // 对应移动端系统分享面板的等价动作；返回 { ok } 或 { error }。
+  showItemInFolder: (filePath) => ipcRenderer.invoke('app:show-item-in-folder', filePath),
+
   // Win10/Win7 图片兜底：主进程下载图片（忽略证书错误）并返回 data URL，
   // 绕开 Chromium 证书/TLS 限制。调用方可直接传 URL 字符串或 { url } 对象。
   fetchImageUrl: (payload) => {

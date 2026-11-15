@@ -416,6 +416,17 @@ ipcMain.handle('app:open-external', async (_event, url) => {
   } catch (e) { return { error: e && e.message ? e.message : String(e) }; }
 });
 
+// 导出结果弹窗「打开所在文件夹」：用 shell.showItemInFolder 在资源管理器中定位文件。
+// 桌面端无安卓系统分享面板，这是等价的「定位 / 分享前准备」动作；渲染进程不接触 fs。
+ipcMain.handle('app:show-item-in-folder', async (_event, filePath) => {
+  try {
+    if (!filePath || typeof filePath !== 'string') return { error: 'invalid-path' };
+    if (!fs.existsSync(filePath)) return { error: 'not-found' };
+    shell.showItemInFolder(filePath);
+    return { ok: true };
+  } catch (e) { return { error: e && e.message ? e.message : String(e) }; }
+});
+
 app.whenReady().then(() => {
   // 部分 Win10 系统缺少 CloudBase 存储域名 (*.tcb.qcloud.la) 的根证书更新，
   // Chromium 会报证书错误导致图片加载失败（Win11 通常已包含最新根证书）。
